@@ -1,0 +1,10 @@
+/target/
+**/*.rs.bk
+*.swp
+*~
+.DS_Store
+.relay_key
+.exits
+/dist/
+proxy.log
+watchdog.log
