@@ -8,3 +8,4 @@
 /dist/
 proxy.log
 watchdog.log
+*.exe

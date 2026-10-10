@@ -274,7 +274,7 @@ fn pick_server(key: &GroupKey) -> (usize, String) {
         state.current = Some(pick);
         drop(state);
         crate::dns_forwarder::log_proxy(&format!(
-            "Прокси из группы: сервер #{} из {} (CPU {}%)",
+            "Выделенный сервер: #{} из {} (CPU {}%)",
             pick + 1,
             total,
             cpu
@@ -337,7 +337,7 @@ fn group_route() -> &'static Route {
     static ROUTE: OnceLock<Route> = OnceLock::new();
     ROUTE.get_or_init(|| {
         Route::new(
-            Box::leak("Прокси из группы".into()),
+            Box::leak("Выделенный прокси".into()),
             crate::routes::Kind::Group,
         )
     })
@@ -507,14 +507,14 @@ fn open_agu2(
     let mut buf = [0u8; 1024];
     let hdr_end = loop {
         match stream.read(&mut buf) {
-            Ok(0) => return Err("сервер группы отказал: соединение закрыто".to_string()),
+            Ok(0) => return Err("выделенный сервер отказал: соединение закрыто".to_string()),
             Ok(n) => {
                 acc.extend_from_slice(&buf[..n]);
                 if let Some(pos) = acc.windows(4).position(|w| w == b"\r\n\r\n") {
                     break pos + 4;
                 }
                 if acc.len() > 4096 {
-                    return Err("сервер группы отказал: ответ слишком велик".to_string());
+                    return Err("выделенный сервер отказал: ответ слишком велик".to_string());
                 }
             }
             Err(e) if e.kind() == ErrorKind::WouldBlock => {}
@@ -529,7 +529,7 @@ fn open_agu2(
         .unwrap_or_default();
 
     if !status.contains(" 200") {
-        return Err(format!("сервер группы отказал: {}", status));
+        return Err(format!("выделенный сервер отказал: {}", status));
     }
 
     sock.set_read_timeout(None).ok();
@@ -1001,13 +1001,13 @@ fn poll_pool(key: &GroupKey) {
 
     for (n, why) in failed {
         crate::dns_forwarder::log_proxy(&format!(
-            "Прокси из группы #{}: статус: {}",
+            "Выделенный сервер #{}: статус: {}",
             n,
             scrub(&why)
         ));
     }
     if let Some(names) = saved {
-        crate::dns_forwarder::log_proxy(&format!("Прокси из группы: серверов в пуле {}", total));
+        crate::dns_forwarder::log_proxy(&format!("Выделенный сервер: серверов в пуле {}", total));
         save_servers(key, names);
     }
     for name in retry {

@@ -20,26 +20,12 @@ use eframe::egui;
 use std::time::Duration;
 
 use super::status::{self, Action, Tone};
-use super::{theme, widgets, App, DONATE_URL, TELEGRAM_GROUP_URL};
+use super::{theme, widgets, App};
 use crate::ops::{Cap, Cmd, Level, State};
 use crate::utils::mask_path;
 
 pub fn view(app: &mut App, ui: &mut egui::Ui) {
     header(app, ui);
-
-    // A bottom panel, reserved *before* the scrolling body. Laid out the other
-    // way round — scroll area first, footer after — the scroll area claims every
-    // remaining pixel and the footer is positioned past the bottom of the
-    // window: measured, painted, and never on screen. A panel is the one
-    // construct that takes its strip out of the parent first.
-    egui::Panel::bottom("footer")
-        .frame(egui::Frame::new().inner_margin(egui::Margin {
-            top: 2,
-            bottom: 2,
-            ..Default::default()
-        }))
-        .show_separator_line(true)
-        .show(ui, footer);
 
     egui::CentralPanel::default()
         .frame(egui::Frame::new())
@@ -68,19 +54,51 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
 fn header(app: &mut App, ui: &mut egui::Ui) {
     app.update_banner(ui);
 
-    // No product name and no version here: both are in the title bar already,
-    // and repeating them costs a line of a window this narrow.
-    if let Some(what) = &app.busy {
-        ui.horizontal(|ui| {
-            ui.add(egui::Spinner::new().size(14.0));
-            ui.label(
-                egui::RichText::new(what.clone())
-                    .size(12.0)
-                    .color(theme::MUTED),
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new("ANTIGRAVITY UNLOCKER")
+                .size(16.5)
+                .strong()
+                .color(theme::TEXT),
+        );
+        // Red studio badge matching adb_ui
+        let badge_size = egui::vec2(42.0, 19.0);
+        let (badge_rect, _) = ui.allocate_exact_size(badge_size, egui::Sense::hover());
+        if ui.is_rect_visible(badge_rect) {
+            let p = ui.painter();
+            let cr = egui::CornerRadius::same(4);
+            p.rect_filled(
+                badge_rect,
+                cr,
+                egui::Color32::from_rgba_premultiplied(220, 38, 38, 25),
             );
+            p.rect_stroke(
+                badge_rect,
+                cr,
+                egui::Stroke::new(1.0, theme::ACCENT_LINE),
+                egui::StrokeKind::Inside,
+            );
+            p.text(
+                badge_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "v1.1",
+                egui::FontId::proportional(11.0),
+                theme::ACCENT_LINE,
+            );
+        }
+
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if let Some(what) = &app.busy {
+                ui.label(
+                    egui::RichText::new(what.clone())
+                        .size(12.0)
+                        .color(theme::MUTED),
+                );
+                ui.add(egui::Spinner::new().size(13.0));
+            }
         });
-        ui.add_space(8.0);
-    }
+    });
+    ui.add_space(8.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -121,23 +139,39 @@ fn status_card(app: &mut App, ui: &mut egui::Ui) {
     let mut pressed: Option<Action> = None;
     let mut copy = false;
     let mut reveal: Option<std::path::PathBuf> = None;
-    egui::Frame::new()
+    let card_stroke = match h.tone {
+        Tone::Ok => egui::Stroke::new(1.0, theme::OK.gamma_multiply(0.8)),
+        Tone::Wait => egui::Stroke::new(1.0, theme::ACCENT),
+        Tone::Fixing => egui::Stroke::new(1.0, theme::WARN),
+        Tone::Action => egui::Stroke::new(1.0, theme::BAD),
+        Tone::Off => egui::Stroke::new(1.0, theme::LINE),
+    };
+    let status_frame = egui::Frame::new()
         .fill(theme::CARD)
         .corner_radius(egui::CornerRadius::same(theme::RADIUS))
         .inner_margin(egui::Margin::same(16))
-        .stroke(egui::Stroke::new(1.5, accent))
-        .show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
-            ui.horizontal(|ui| {
-                let (rect, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
-                ui.painter().circle_filled(rect.center(), 6.0, accent);
-                ui.label(
-                    egui::RichText::new(&h.title)
-                        .size(19.0)
-                        .strong()
-                        .color(theme::TEXT),
-                );
-            });
+        .stroke(card_stroke)
+        .shadow(egui::Shadow {
+            offset: [0, 2],
+            blur: 8,
+            spread: 0,
+            color: egui::Color32::from_black_alpha(100),
+        });
+
+    let _resp = status_frame.show(ui, |ui| {
+        ui.set_min_width(ui.available_width());
+        ui.horizontal(|ui| {
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+            let p = ui.painter();
+            p.circle_filled(rect.center(), 6.5, accent.gamma_multiply(0.25));
+            p.circle_filled(rect.center(), 4.5, accent);
+            ui.label(
+                egui::RichText::new(&h.title)
+                    .size(19.0)
+                    .strong()
+                    .color(theme::TEXT),
+            );
+        });
             ui.add_space(4.0);
             ui.label(egui::RichText::new(&h.detail).size(13.5).color(theme::TEXT));
             if let Some(action) = h.action {
@@ -158,16 +192,32 @@ fn status_card(app: &mut App, ui: &mut egui::Ui) {
                 .clone()
                 .filter(|(at, _)| at.elapsed() < REPORT_SHOWN_FOR);
             ui.horizontal(|ui| {
+                let save_btn = egui::Button::new(
+                    egui::RichText::new("Сохранить отчёт")
+                        .size(12.5)
+                        .color(theme::TEXT),
+                )
+                .fill(theme::BUTTON)
+                .stroke(egui::Stroke::new(1.0, theme::LINE))
+                .corner_radius(egui::CornerRadius::same(theme::RADIUS_SMALL));
                 if ui
-                    .add_enabled(!busy, egui::Button::new(egui::RichText::new("Сохранить отчёт").size(12.5)))
+                    .add_enabled(!busy, save_btn)
                     .on_hover_text("Всё, что нужно, чтобы понять, почему Antigravity отвечает или нет — одним файлом на рабочем столе: приложите его к сообщению")
                     .clicked()
                 {
                     copy = true;
                 }
                 if let Some((_, path)) = &saved {
+                    let reveal_btn = egui::Button::new(
+                        egui::RichText::new("Показать файл")
+                            .size(12.5)
+                            .color(theme::TEXT),
+                    )
+                    .fill(theme::BUTTON)
+                    .stroke(egui::Stroke::new(1.0, theme::LINE))
+                    .corner_radius(egui::CornerRadius::same(theme::RADIUS_SMALL));
                     if ui
-                        .add(egui::Button::new(egui::RichText::new("Показать файл").size(12.5)))
+                        .add(reveal_btn)
                         .on_hover_text("Открыть папку с отчётом")
                         .clicked()
                     {
@@ -257,14 +307,6 @@ fn antigravity_card(app: &mut App, ui: &mut egui::Ui) {
         ui.separator();
         ui.add_space(8.0);
         bypass_master(app, ui);
-
-        // The group proxy is a way of its own: it can be the only one on, so the
-        // row is always there.
-        ui.add_space(10.0);
-        ui.separator();
-        ui.add_space(8.0);
-        cap_row(app, ui, Cap::GroupProxy);
-        group_proxy_field(app, ui);
 
         ui.add_space(10.0);
         ui.separator();
@@ -597,59 +639,6 @@ fn providers_list(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
-fn group_proxy_field(app: &mut App, ui: &mut egui::Ui) {
-    let busy = app.is_busy();
-    ui.add_space(4.0);
-    widgets::hint(
-        ui,
-        "Для активации прокси из группы Nova — отправьте туда команду и вставьте \
-         полученный код в поле ниже.",
-    );
-    ui.add_space(4.0);
-    ui.horizontal(|ui| {
-        if ui.button("Скопировать команду").clicked() {
-            let cmd = format!("/ag+{}", crate::hwid::pc_code());
-            crate::utils::set_clipboard_text(&cmd);
-            app.log.push((
-                Level::Info,
-                "Команда скопирована — отправьте её в группе.".to_string(),
-            ));
-        }
-        if ui.button("Открыть группу").clicked() {
-            crate::utils::open_url(GROUP_ROOM_URL);
-        }
-    });
-    ui.add_space(4.0);
-    let field = egui::TextEdit::singleline(&mut app.group_key_input)
-        .hint_text("код из группы")
-        .desired_width(ui.available_width());
-    let resp = ui
-        .add_enabled(!busy, field)
-        .on_hover_text("Правая кнопка мыши — вставить код из буфера");
-    // Right click pastes: egui's field has no context menu, and the code
-    // arrives on the clipboard from Telegram.
-    let mut right_pasted = false;
-    if resp.secondary_clicked() && !busy {
-        if let Some(clip) = crate::utils::clipboard_text() {
-            app.group_key_input = clip.trim().to_string();
-            right_pasted = true;
-        }
-    }
-    // The field shows the saved code. Sent when it holds a whole new code (a
-    // paste), or on Enter - and only when it differs from what was sent last.
-    let text = app.group_key_input.trim().to_string();
-    let pasted = (resp.changed() || right_pasted) && text.starts_with("agk1.") && text.len() > 40;
-    let entered =
-        resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !text.is_empty();
-    if (pasted || entered) && text != app.group_key_sent {
-        app.worker.send(Cmd::SetGroupKey(text.clone()));
-        app.group_key_input = text.clone();
-        app.group_key_sent = text;
-    }
-}
-
-/// The group's topic where the bot answers the command.
-const GROUP_ROOM_URL: &str = "https://t.me/nova_txt/69864";
 
 fn own_proxy_field(app: &mut App, ui: &mut egui::Ui) {
     let busy = app.is_busy();
@@ -817,67 +806,7 @@ fn log_keys(app: &mut App, ui: &mut egui::Ui) {
 }
 
 /// Text size in the footer. One point up from the rest of the small print — it
-/// is the line people are meant to read, not a caption under something else.
-const FOOTER_TEXT: f32 = 13.0;
 
-fn footer(ui: &mut egui::Ui) {
-    // The strip was about twice as tall as its text. Two things made it so, and
-    // the margin was the smaller one: a link is an *interactive* widget, so it
-    // claims `interact_size.y` (26 px, sized for buttons) however short its text
-    // is. Shrinking that here — and only here — is what actually halves the bar.
-    ui.spacing_mut().interact_size.y = 18.0;
-    ui.spacing_mut().item_spacing.y = 0.0;
-
-    // Built right-to-left, so it reads left-to-right on screen while staying
-    // pinned to the right edge.
-    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        // The outer frame keeps only 4 px on the right, for the scroll bar. The
-        // footer is not inside the scrolling area, so it pays that back itself
-        // or its last link is cut off by the window edge.
-        ui.add_space(12.0);
-        if ui
-            .link(egui::RichText::new("t.me/nova_txt").size(FOOTER_TEXT))
-            .clicked()
-        {
-            crate::utils::open_url(TELEGRAM_GROUP_URL);
-        }
-        ui.label(
-            egui::RichText::new("Группа в Telegram:")
-                .size(FOOTER_TEXT)
-                .color(theme::MUTED),
-        );
-        ui.label(
-            egui::RichText::new("|")
-                .size(FOOTER_TEXT)
-                .color(theme::LINE),
-        );
-        if ui
-            .link(egui::RichText::new("nova-app.eu/donate").size(FOOTER_TEXT))
-            .clicked()
-        {
-            crate::utils::open_url(DONATE_URL);
-        }
-        ui.label(
-            egui::RichText::new("Отблагодарить копеечкой:")
-                .size(FOOTER_TEXT)
-                .color(theme::MUTED),
-        );
-        #[cfg(target_os = "macos")]
-        {
-            ui.label(
-                egui::RichText::new("|")
-                    .size(FOOTER_TEXT)
-                    .color(theme::LINE),
-            );
-            if ui
-                .link(egui::RichText::new("by @Fuheshka").size(FOOTER_TEXT))
-                .clicked()
-            {
-                crate::utils::open_url("https://github.com/Fuheshka/Antigravity-Unlocker");
-            }
-        }
-    });
-}
 
 /// The pencil dialog: type or paste a folder, we resolve it to an install root.
 pub fn path_dialog(app: &mut App, ctx: &egui::Context) {

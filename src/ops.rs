@@ -81,7 +81,7 @@ impl Cap {
             Cap::LocalProxy => "Локальный прокси",
             Cap::OwnProxy => "Свой HTTP-прокси",
             Cap::BuiltinExits => "Встроенные выходы",
-            Cap::GroupProxy => "Прокси из группы",
+            Cap::GroupProxy => "Выделенный прокси",
             Cap::DnsRotation => "Ротация DNS-серверов",
             Cap::VerifyTls => "Сверять TLS",
         }
@@ -262,7 +262,7 @@ impl Status {
 pub fn bypass_order(on: bool) -> Vec<Cap> {
     if on {
         // The user's own proxy is theirs to switch on: it needs an address.
-        vec![Cap::Dns, Cap::LocalProxy, Cap::BuiltinExits, Cap::GroupProxy]
+        vec![Cap::Dns, Cap::LocalProxy, Cap::BuiltinExits]
     } else {
         vec![
             Cap::LocalProxy,
@@ -1343,9 +1343,9 @@ fn apply(ctx: &mut Ctx, cap: Cap, on: bool) {
             ctx.log(
                 Level::Ok,
                 if on {
-                    "Прокси из группы включён."
+                    "Выделенный прокси включён."
                 } else {
-                    "Прокси из группы выключен."
+                    "Выделенный прокси выключен."
                 },
             );
             if on {
@@ -2296,7 +2296,7 @@ mod tests {
         let off = bypass_order(false);
         assert_eq!(off.last(), Some(&Cap::Dns));
         assert!(off.contains(&Cap::OwnProxy) && off.contains(&Cap::GroupProxy));
-        assert!(!bypass_order(true).contains(&Cap::OwnProxy));
+        assert!(!bypass_order(true).contains(&Cap::OwnProxy) && !bypass_order(true).contains(&Cap::GroupProxy));
     }
 
     /// A service kept up for a route is not a half-installed DNS layer: with the

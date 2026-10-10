@@ -6,7 +6,7 @@
 
 use eframe::egui;
 
-use super::{theme, widgets, App, Screen, TELEGRAM_KEYS_URL};
+use super::{theme, widgets, App, Screen};
 use crate::auth;
 
 pub fn view(app: &mut App, ui: &mut egui::Ui) {
@@ -23,6 +23,12 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
             egui::RichText::new("Antigravity Unlocker")
                 .size(28.0)
                 .strong(),
+        );
+        ui.add_space(4.0);
+        ui.label(
+            egui::RichText::new("v1.1")
+                .size(13.0)
+                .color(theme::ACCENT),
         );
     });
 
@@ -87,10 +93,6 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         let mut pressed = false;
         ui.horizontal(|ui| {
             pressed = widgets::primary(ui, "Продолжить", can_continue).clicked();
-            ui.add_space(8.0);
-            if widgets::ghost(ui, "Взять ключ из группы").clicked() {
-                crate::utils::open_url(TELEGRAM_KEYS_URL);
-            }
         });
 
         if (entered || pressed) && normalized_len == 24 {

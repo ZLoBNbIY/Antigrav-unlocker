@@ -148,7 +148,7 @@ impl Default for Settings {
             dns: true,
             local_proxy: true,
             builtin_exits: true,
-            group_proxy: true,
+            group_proxy: false,
             disabled_providers: Vec::new(),
             rotate_providers: true,
             provider_order: Vec::new(),
@@ -453,7 +453,7 @@ mod tests {
         // Nothing has been written in a test process, so this exercises the
         // "first run" path that every new user takes.
         let s = Settings::default();
-        assert!(s.dns && s.local_proxy && s.builtin_exits && s.group_proxy && s.auto_patch);
+        assert!(s.dns && s.local_proxy && s.builtin_exits && !s.group_proxy && s.auto_patch);
         assert!(s.rotate_providers, "the pool races by default");
         assert!(
             !s.client_patch,

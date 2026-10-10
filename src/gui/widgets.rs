@@ -1,22 +1,14 @@
 //! The small set of controls every screen is built from.
 //!
-//! There are deliberately only four: a switch, a card, a primary button and a
-//! link. The brief was that everything is driven by switches — so a control
-//! that is not one of these is a design mistake, not a missing widget.
+//! Restyled in clean Black & Red Studio aesthetic matching adb_ui.
 
 use eframe::egui::{self, CornerRadius, Sense, Stroke};
 
 use super::theme;
 
-/// An iOS-style on/off switch.
-///
-/// Every capability in this tool is a switch: flipping it off *undoes* the
-/// thing rather than hiding a menu item (the old build had separate "disable"
-/// entries, which is the state living in two places). `enabled = false` draws
-/// the switch dimmed and swallows clicks — used when the action needs admin and
-/// the process is not elevated.
+/// A clean black & red toggle switch.
 pub fn switch(ui: &mut egui::Ui, on: &mut bool, enabled: bool) -> egui::Response {
-    let size = egui::vec2(42.0, 23.0);
+    let size = egui::vec2(44.0, 24.0);
     let sense = if enabled {
         Sense::click()
     } else {
@@ -30,31 +22,59 @@ pub fn switch(ui: &mut egui::Ui, on: &mut bool, enabled: bool) -> egui::Response
     }
 
     if ui.is_rect_visible(rect) {
-        let how = ui.ctx().animate_bool_with_time(resp.id, *on, 0.12);
-        let track = if *on {
-            theme::ACCENT.gamma_multiply(if enabled { 1.0 } else { 0.4 })
-        } else {
-            theme::SUNKEN
-        };
-        let knob = if enabled {
-            theme::TEXT
-        } else {
-            theme::MUTED.gamma_multiply(0.7)
-        };
-
+        let how = ui.ctx().animate_bool_with_time(resp.id, *on, 0.14);
         let painter = ui.painter();
-        painter.rect_filled(rect, CornerRadius::same(11), track);
-        if !*on {
+        let r_cr = CornerRadius::same(12);
+
+        if *on {
+            // Vibrant studio red active track
+            let track_color = if enabled {
+                theme::ACCENT
+            } else {
+                egui::Color32::from_rgba_premultiplied(185, 28, 28, 120)
+            };
+            painter.rect_filled(rect, r_cr, track_color);
             painter.rect_stroke(
                 rect,
-                CornerRadius::same(11),
+                r_cr,
+                Stroke::new(1.0, theme::ACCENT_HOVER),
+                egui::StrokeKind::Inside,
+            );
+        } else {
+            // Dark obsidian inactive track
+            painter.rect_filled(rect, r_cr, theme::BUTTON);
+            painter.rect_stroke(
+                rect,
+                r_cr,
                 Stroke::new(1.0, theme::LINE),
                 egui::StrokeKind::Inside,
             );
         }
+
+        // Knob
         let r = rect.height() / 2.0 - 3.0;
         let cx = egui::lerp((rect.left() + r + 3.0)..=(rect.right() - r - 3.0), how);
-        painter.circle_filled(egui::pos2(cx, rect.center().y), r, knob);
+        let knob_center = egui::pos2(cx, rect.center().y);
+
+        if *on && enabled {
+            // Soft red glow halo around the knob
+            painter.circle_filled(
+                knob_center,
+                r + 2.5,
+                egui::Color32::from_rgba_premultiplied(239, 68, 68, 45),
+            );
+        }
+
+        let knob_color = if enabled {
+            if *on {
+                egui::Color32::WHITE
+            } else {
+                theme::SOFT_TEXT
+            }
+        } else {
+            theme::MUTED.gamma_multiply(0.6)
+        };
+        painter.circle_filled(knob_center, r, knob_color);
     }
 
     if enabled {
@@ -64,20 +84,11 @@ pub fn switch(ui: &mut egui::Ui, on: &mut bool, enabled: bool) -> egui::Response
     }
 }
 
-/// Room reserved on the right of a row for its switch: the 42 px control plus
+/// Room reserved on the right of a row for its switch: the 44 px control plus
 /// the gap that keeps it off the card's edge.
-pub const SWITCH_COLUMN: f32 = 62.0;
+pub const SWITCH_COLUMN: f32 = 64.0;
 
 /// A row of text with a switch pinned to its right.
-///
-/// The text column is *allocated first, at a fixed width* rather than being left
-/// to take what it wants. A wrapped label given the whole row claims all of it,
-/// and the switch is then laid out past the right edge — drawn, but under the
-/// text or off the card entirely. Every row that pairs prose with a switch has
-/// to go through here for that reason; doing it by hand is how one row gets
-/// missed.
-///
-/// Returns whether the switch was flipped.
 pub fn switch_row(
     ui: &mut egui::Ui,
     on: &mut bool,
@@ -102,62 +113,80 @@ pub fn switch_row(
     changed
 }
 
-/// A titled block. Everything on the main screen lives in one of these.
+/// A titled dark surface card with subtle border.
 pub fn card<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
-    egui::Frame::new()
+    let frame = egui::Frame::new()
         .fill(theme::CARD)
         .corner_radius(CornerRadius::same(theme::RADIUS))
-        .inner_margin(egui::Margin::same(14))
+        .inner_margin(egui::Margin::same(15))
         .stroke(Stroke::new(1.0, theme::LINE))
-        .show(ui, |ui| {
-            // Cards line up only if they are all the same width; sized to their
-            // contents, a short one sits visibly narrower than its neighbour.
-            ui.set_min_width(ui.available_width());
-            add(ui)
-        })
-        .inner
+        .shadow(egui::Shadow {
+            offset: [0, 2],
+            blur: 8,
+            spread: 0,
+            color: egui::Color32::from_black_alpha(100),
+        });
+
+    let resp = frame.show(ui, |ui| {
+        ui.set_min_width(ui.available_width());
+        add(ui)
+    });
+    resp.inner
 }
 
-/// The one filled button per screen — the action the user came to press.
+/// Primary studio red action button.
 pub fn primary(ui: &mut egui::Ui, text: &str, enabled: bool) -> egui::Response {
+    let (fill, stroke, text_color) = if enabled {
+        (
+            theme::ACCENT,
+            Stroke::new(1.0, theme::ACCENT_LINE),
+            egui::Color32::WHITE,
+        )
+    } else {
+        (theme::BUTTON, Stroke::new(1.0, theme::LINE), theme::MUTED)
+    };
     let btn = egui::Button::new(
         egui::RichText::new(text)
-            .color(if enabled {
-                egui::Color32::WHITE
-            } else {
-                theme::MUTED
-            })
-            .size(15.0),
+            .color(text_color)
+            .strong()
+            .size(14.5),
     )
-    .fill(if enabled {
-        theme::ACCENT
-    } else {
-        theme::SUNKEN
-    })
+    .fill(fill)
+    .stroke(stroke)
     .corner_radius(CornerRadius::same(theme::RADIUS_SMALL))
     .min_size(egui::vec2(0.0, 34.0));
 
     ui.add_enabled(enabled, btn)
 }
 
-/// A quiet outlined button: everything that is not *the* action.
+/// A clean dark secondary button with border.
 pub fn ghost(ui: &mut egui::Ui, text: &str) -> egui::Response {
-    let btn = egui::Button::new(egui::RichText::new(text).color(theme::TEXT))
-        .fill(theme::SUNKEN)
-        .stroke(Stroke::new(1.0, theme::LINE))
-        .corner_radius(CornerRadius::same(theme::RADIUS_SMALL));
+    let btn = egui::Button::new(
+        egui::RichText::new(text)
+            .color(theme::TEXT)
+            .size(13.5),
+    )
+    .fill(theme::BUTTON)
+    .stroke(Stroke::new(1.0, theme::LINE))
+    .corner_radius(CornerRadius::same(theme::RADIUS_SMALL))
+    .min_size(egui::vec2(0.0, 30.0));
     ui.add(btn)
 }
 
-/// Small grey explanatory text — the line under a switch that says what it does.
+/// Small muted explanatory text under a control.
 pub fn hint(ui: &mut egui::Ui, text: &str) {
     ui.label(egui::RichText::new(text).color(theme::MUTED).size(12.5));
 }
 
-/// A coloured status dot, for install rows and provider rows.
+/// A status dot with subtle halo.
 pub fn dot(ui: &mut egui::Ui, color: egui::Color32) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), Sense::hover());
     if ui.is_rect_visible(rect) {
-        ui.painter().circle_filled(rect.center(), 4.0, color);
+        let p = ui.painter();
+        let center = rect.center();
+        // Glow halo
+        p.circle_filled(center, 5.0, color.gamma_multiply(0.25));
+        // Core dot
+        p.circle_filled(center, 3.5, color);
     }
 }

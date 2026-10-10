@@ -1,17 +1,9 @@
 use sha2::{Digest, Sha256};
 
-// License model (intentionally soft — keys are free):
+// License model:
 //
-// * The base secret below is COMMITTED on purpose. A build made from the public
-//   GitHub sources must accept the very same keys the author hands out in
-//   Telegram, which is only possible if the secret ships in the source.
 // * Keys are salted with the crate version (env!("CARGO_PKG_VERSION")), so a key
-//   minted for one release does NOT validate on any other release. After every
-//   update users grab a fresh, free key from t.me/nova_txt.
-//
-// This is not DRM: a determined user could derive keys from these public
-// sources. The point is simply to route ordinary users through the Telegram
-// group for their per-version key.
+//   minted for one release does NOT validate on any other release.
 const LICENSE_BASE_SECRET: &str = ")Q.QFyU+oOs#Z:jmtxonGfZi+w#|XG4<";
 // Must match dist_keygen.py exactly (base + separator + version).
 const LICENSE_VERSION_SEP: &str = "::";

@@ -15,9 +15,9 @@ use rustls::pki_types::ServerName;
 use rustls::{ClientConfig, ClientConnection};
 use serde::{Deserialize, Serialize};
 
-pub const RELEASES_LATEST_URL: &str = "https://github.com/Fuheshka/Antigravity-Unlocker/releases/latest";
-const API_HOST: &str = "api.github.com";
-const API_PATH: &str = "/repos/Fuheshka/Antigravity-Unlocker/releases/latest";
+pub const RELEASES_LATEST_URL: &str = "";
+const API_HOST: &str = "";
+const API_PATH: &str = "";
 const CHECK_INTERVAL: Duration = Duration::from_secs(8 * 60 * 60);
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -33,7 +33,7 @@ const MAX_BODY: usize = 256 * 1024;
 /// compare itself against tag `v2.12.2_3` as if it were `2.12.2`, and claim an
 /// update that does not exist.
 pub fn current_version() -> &'static str {
-    option_env!("AG_FULL_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
+    option_env!("AG_FULL_VERSION").unwrap_or("1.1")
 }
 
 /// Information about a GitHub release asset.
@@ -281,86 +281,14 @@ pub fn fetch_latest_release() -> Result<ReleaseInfo, String> {
     Ok(release)
 }
 
-/// Checks for updates respecting `CHECK_INTERVAL` (8 hours).
-/// If `force` is false, it uses the cached result if available and fresh.
-/// If an update is available, returns `Ok(Some(release))`.
-pub fn check_update_cached(force: bool) -> Result<Option<ReleaseInfo>, String> {
-    let now_unix = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-
-    let path = cache_path();
-    if !force {
-        if let Ok(data) = fs::read_to_string(&path) {
-            if let Ok(cached) = serde_json::from_str::<CachedCheck>(&data) {
-                if now_unix >= cached.checked_at_unix
-                    && Duration::from_secs(now_unix - cached.checked_at_unix) < CHECK_INTERVAL
-                {
-                    return if cached.release.is_newer_than_current() {
-                        Ok(Some(cached.release))
-                    } else {
-                        Ok(None)
-                    };
-                }
-            }
-        }
-    }
-
-    let release = fetch_latest_release()?;
-    let cache_entry = CachedCheck {
-        checked_at_unix: now_unix,
-        release: release.clone(),
-    };
-    if let Ok(serialized) = serde_json::to_string(&cache_entry) {
-        fs::write(&path, serialized).ok();
-    }
-
-    if release.is_newer_than_current() {
-        Ok(Some(release))
-    } else {
-        Ok(None)
-    }
+/// Checks for updates (disabled).
+pub fn check_update_cached(_force: bool) -> Result<Option<ReleaseInfo>, String> {
+    Ok(None)
 }
 
-/// Watches for a newer release for as long as the receiver lives.
-///
-/// Checked once immediately — the banner has to be up before the licence screen
-/// is even answered — and then every `CHECK_INTERVAL` for a window that stays
-/// open. Only the first pass may answer from the on-disk cache: after that the
-/// thread has already waited the full interval, so re-reading a cache it wrote
-/// itself would just double the wait.
-pub fn spawn_watch(tx: std::sync::mpsc::Sender<ReleaseInfo>, wake: Box<dyn Fn() + Send>) {
-    std::thread::Builder::new()
-        .name("update-watch".to_string())
-        .spawn(move || {
-            let mut first = true;
-            loop {
-                match check_update_cached(!first) {
-                    Ok(Some(rel)) => {
-                        // A closed receiver means the window is gone; so is the
-                        // reason to keep checking.
-                        if tx.send(rel).is_err() {
-                            return;
-                        }
-                        // egui sleeps until something asks it to repaint, so a
-                        // banner that only lands in a channel stays invisible
-                        // until the user happens to move the mouse.
-                        wake();
-                    }
-                    Ok(None) => {}
-                    Err(_e) => {
-                        // Background check: a failure is not the user's problem,
-                        // and there is no UI surface that could act on it.
-                        #[cfg(debug_assertions)]
-                        eprintln!("update check failed: {}", _e);
-                    }
-                }
-                first = false;
-                std::thread::sleep(CHECK_INTERVAL);
-            }
-        })
-        .ok();
+/// Watches for a newer release (disabled).
+pub fn spawn_watch(_tx: std::sync::mpsc::Sender<ReleaseInfo>, _wake: Box<dyn Fn() + Send>) {
+    // Background update check disabled
 }
 
 #[cfg(test)]

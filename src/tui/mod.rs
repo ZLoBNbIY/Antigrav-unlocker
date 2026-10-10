@@ -543,23 +543,7 @@ impl App {
                         .send(Cmd::SetProvider(p.name.clone(), !p.enabled));
                 }
             }
-            Row::GroupProxyOpenRoom => {
-                crate::utils::open_url("https://t.me/nova_txt/69864");
-                self.toast("Открыто в браузере: https://t.me/nova_txt/69864");
-            }
-            Row::GroupProxyCopy => {
-                let cmd = format!("/ag+{}", crate::hwid::pc_code());
-                crate::utils::set_clipboard_text(&cmd);
-                self.toast(format!("Скопировано: {} — отправьте это сообщение в комнате", cmd));
-            }
-            Row::GroupProxyPaste => {
-                if let Some(text) = crate::utils::clipboard_text() {
-                    self.worker.send(Cmd::SetGroupKey(text));
-                } else {
-                    self.toast("Буфер обмена пуст");
-                }
-            }
-            Row::GroupProxyText => {}
+            Row::GroupProxyOpenRoom | Row::GroupProxyCopy | Row::GroupProxyPaste | Row::GroupProxyText => {}
             Row::OwnProxyText => {
                 self.input = Some(Input::OwnProxy {
                     text: self.own_proxy_text(),
@@ -708,11 +692,6 @@ impl App {
             }
             rows.push(Row::Cap(Cap::LocalProxy));
             rows.push(Row::Cap(Cap::BuiltinExits));
-            rows.push(Row::Cap(Cap::GroupProxy));
-            rows.push(Row::GroupProxyText);
-            rows.push(Row::GroupProxyOpenRoom);
-            rows.push(Row::GroupProxyCopy);
-            rows.push(Row::GroupProxyPaste);
             rows.push(Row::Cap(Cap::VerifyTls));
             rows.push(Row::Cap(Cap::OwnProxy));
             rows.push(Row::OwnProxyText);
@@ -745,15 +724,15 @@ impl App {
             }
             Row::Advanced => "Детали обхода: DNS-серверы, прокси, выходы.".into(),
             Row::Provider(_) => "Пробел — включить или выключить сервер, +/- — выше или ниже в списке.".into(),
-            Row::GroupProxyText => "Код этого ПК и состояние ключа.".into(),
-            Row::GroupProxyOpenRoom => "Открыть Telegram-комнату для получения ключа.".into(),
-            Row::GroupProxyCopy => "Скопировать команду для получения ключа.".into(),
-            Row::GroupProxyPaste => "Вставить полученный ключ из буфера обмена.".into(),
+            Row::GroupProxyText
+            | Row::GroupProxyOpenRoom
+            | Row::GroupProxyCopy
+            | Row::GroupProxyPaste => String::new(),
             Row::OwnProxyText => {
                 "Enter — изменить адрес: логин:пароль@адрес:порт (или адрес:порт без пароля).".into()
             }
             Row::Report => {
-                "Всё, что нужно, чтобы понять, почему Antigravity отвечает или нет — одним текстом для группы.".into()
+                "Всё, что нужно, чтобы понять, почему Antigravity отвечает или нет — одним текстом.".into()
             }
         }
     }
@@ -835,21 +814,10 @@ impl App {
                 let name = format!("{}. {}", i + 1, status::provider_name(&p.name));
                 switch_line("      ", &name, &state, busy, width)
             }
-            Row::GroupProxyText => {
-                let pc = crate::hwid::pc_code();
-                let key_text = if crate::settings::group_key().is_empty() {
-                    "ключа нет"
-                } else {
-                    "ключ принят"
-                };
-                ListItem::new(Line::from(vec![
-                    Span::raw("      Код ПК: "),
-                    Span::styled(format!("{} - {}", pc, key_text), Style::new().fg(Color::Gray)),
-                ]))
-            }
-            Row::GroupProxyOpenRoom => ListItem::new(Line::from(vec![Span::styled("      > Открыть комнату группы", Style::new().fg(Color::Cyan))])),
-            Row::GroupProxyCopy => ListItem::new(Line::from(vec![Span::styled("      > Скопировать команду", Style::new().fg(Color::Cyan))])),
-            Row::GroupProxyPaste => ListItem::new(Line::from(vec![Span::styled("      > Вставить ключ из буфера", Style::new().fg(Color::Cyan))])),
+            Row::GroupProxyText
+            | Row::GroupProxyOpenRoom
+            | Row::GroupProxyCopy
+            | Row::GroupProxyPaste => ListItem::new(Line::raw("")),
             Row::OwnProxyText => {
                 let text = self.own_proxy_text();
                 let shown = if text.is_empty() {
@@ -894,24 +862,14 @@ impl App {
 
     fn title_line(&self) -> Line<'static> {
         #[cfg(target_os = "macos")]
-        let title_str = format!(" Antigravity Unlocker 2 v{} (macOS Edition by @Fuheshka) ", update::current_version());
+        let title_str = format!(" Antigravity Unlocker v{} (macOS Edition) ", update::current_version());
         #[cfg(not(target_os = "macos"))]
-        let title_str = format!(" Antigravity Unlocker 2 v{} ", update::current_version());
+        let title_str = format!(" Antigravity Unlocker v{} ", update::current_version());
 
-        let mut spans = vec![Span::styled(
+        let spans = vec![Span::styled(
             title_str,
             Style::new().add_modifier(Modifier::BOLD),
         )];
-        if let Some(rel) = &self.update {
-            spans.push(Span::styled(
-                format!(
-                    " ⬆ новая версия {}: {} ",
-                    rel.display_version(),
-                    update::RELEASES_LATEST_URL
-                ),
-                Style::new().fg(Color::Black).bg(Color::Yellow),
-            ));
-        }
         Line::from(spans)
     }
 
@@ -959,14 +917,6 @@ impl App {
             lines.push(Line::styled(why, Style::new().fg(Color::Red)));
             lines.push(Line::raw(""));
         }
-        lines.push(Line::styled(
-            format!(
-                "Ключ можно взять в группе: {}",
-                crate::gui::TELEGRAM_KEYS_URL
-            ),
-            Style::new().fg(Color::Gray),
-        ));
-        lines.push(Line::raw(""));
         lines.push(Line::styled(
             "Enter — продолжить · Ctrl+U — стереть · Esc — выход",
             Style::new().fg(Color::DarkGray),

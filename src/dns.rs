@@ -380,7 +380,7 @@ pub struct DnsOutcome {
 ///
 /// Windows applies exactly one rule per name, and a foreign rule can win, which
 /// makes ours a no-op without any error anywhere. Measured on a machine that
-/// also ran "Nova DNS Unblock": `cloudcode-pa` went straight to the direct
+/// also ran another DNS unblock tool: `cloudcode-pa` went straight to the direct
 /// resolvers and never reached the relay, while `antigravity-unleash.goog` -
 /// which had no duplicate - did; dropping the two foreign rules made both
 /// resolve through the relay.
@@ -854,11 +854,11 @@ mod tests {
 
     #[test]
     fn a_foreign_rule_on_one_of_our_names_is_a_conflict() {
-        let out = "daily-cloudcode-pa.googleapis.com|NOVA_DNS_UNBLOCK\n\
-                   chatgpt.com|NOVA_DNS_UNBLOCK\n";
+        let out = "daily-cloudcode-pa.googleapis.com|OTHER_DNS_UNBLOCK\n\
+                   chatgpt.com|OTHER_DNS_UNBLOCK\n";
         assert_eq!(
             parse_conflicts(out, AG_NRPT_CORE),
-            vec!["daily-cloudcode-pa.googleapis.com (NOVA_DNS_UNBLOCK)"]
+            vec!["daily-cloudcode-pa.googleapis.com (OTHER_DNS_UNBLOCK)"]
         );
     }
 

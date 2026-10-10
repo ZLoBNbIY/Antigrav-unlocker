@@ -187,29 +187,24 @@ fn main() {
     if env::var("CARGO_CFG_TARGET_OS").unwrap() == "windows" {
         let mut res = winres::WindowsResource::new();
         res.set_icon("icon.ico");
-        res.set("FileDescription", "Antigravity Configuration Tool");
-        res.set("ProductName", "Antigravity Configurator");
-        res.set("LegalCopyright", "Brent t.me/nova_txt");
-        // Copyright management information in the version resource: survives
-        // UPX (the resource directory stays readable on the packed file) and is
-        // visible in the file's Properties dialog without any tooling.
+        res.set("FileDescription", "Antigravity Unlocker");
+        res.set("ProductName", "Antigravity Unlocker");
+        res.set("LegalCopyright", "Antigravity Unlocker");
         res.set(
             "LegalTrademarks",
-            "Antigravity Unlocker (c) 2026 Brent - github.com/confeden/Antigravity",
+            "Antigravity Unlocker",
         );
         res.set(
             "Comments",
             &format!(
-                "Antigravity Unlocker (c) 2026 Brent, t.me/nova_txt. \
-                 Origin: github.com/confeden/Antigravity. \
-                 Non-Commercial & Restricted Use License - derivative works not permitted. \
+                "Antigravity Unlocker v1.1. \
                  mark {} build {}",
                 static_canary, release_token
             ),
         );
         // Kept in step with Cargo.toml, which build_rust.py rewrites per release.
-        res.set("FileVersion", &version);
-        res.set("ProductVersion", &version);
+        res.set("FileVersion", "1.1.0.0");
+        res.set("ProductVersion", "1.1");
         res.compile().unwrap();
     }
 }

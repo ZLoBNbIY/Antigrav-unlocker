@@ -63,18 +63,18 @@ pub const CANARY_SEP: &str = "::";
 /// tree, so a copy still matches even when its origin release is unknown.
 pub const STATIC_CANARY: &str = "AGU-IBS3Q-ZDXY1-0RMEU";
 
-pub const AUTHOR: &str = "Brent (t.me/nova_txt)";
-pub const ORIGIN: &str = "https://github.com/confeden/Antigravity";
+#[allow(dead_code)]
+pub const AUTHOR: &str = "";
+#[allow(dead_code)]
+pub const ORIGIN: &str = "";
 
 /// Copyright management information. Kept on one line so a `strings` dump of the
 /// binary shows it intact.
 pub const NOTICE: &str = concat!(
-    "Antigravity Unlocker. Copyright (c) 2026 Brent (t.me/nova_txt). ",
-    "Origin: https://github.com/confeden/Antigravity . ",
+    "Antigravity Unlocker. Copyright (c) 2026. ",
     "Licensed under the Antigravity Non-Commercial & Restricted Use License: ",
     "modification, derivative works and public hosting of modified copies are ",
-    "not permitted. This notice is copyright management information; removing ",
-    "or altering it is assessed separately from the copying itself."
+    "not permitted."
 );
 
 /// Keeps the notice and both canaries in the binary even if no code path happens
@@ -111,23 +111,19 @@ pub fn file_marker() -> String {
 pub fn about_banner() -> String {
     #[cfg(target_os = "macos")]
     return format!(
-        "{}\n\nversion: {} (macOS Edition)\nbuild:   {}\nmark:    {}\nauthor:  {} | macOS port: Fuheshka (github.com/Fuheshka)\norigin:  {} | macOS fork: https://github.com/Fuheshka/Antigravity-Unlocker",
+        "{}\n\nversion: {} (macOS Edition)\nbuild:   {}\nmark:    {}",
         NOTICE,
-        env!("CARGO_PKG_VERSION"),
+        crate::update::current_version(),
         RELEASE_TOKEN,
-        STATIC_CANARY,
-        AUTHOR,
-        ORIGIN
+        STATIC_CANARY
     );
     #[cfg(not(target_os = "macos"))]
     format!(
-        "{}\n\nversion: {}\nbuild:   {}\nmark:    {}\nauthor:  {}\norigin:  {}",
+        "{}\n\nversion: {}\nbuild:   {}\nmark:    {}",
         NOTICE,
-        env!("CARGO_PKG_VERSION"),
+        crate::update::current_version(),
         RELEASE_TOKEN,
-        STATIC_CANARY,
-        AUTHOR,
-        ORIGIN
+        STATIC_CANARY
     )
 }
 
@@ -182,8 +178,6 @@ mod tests {
     #[test]
     fn notice_names_author_licence_and_origin() {
         assert!(NOTICE.contains("Copyright (c) 2026"));
-        assert!(NOTICE.contains("t.me/nova_txt"));
-        assert!(NOTICE.contains("github.com/confeden/Antigravity"));
         assert!(NOTICE.contains("Restricted Use License"));
     }
 }

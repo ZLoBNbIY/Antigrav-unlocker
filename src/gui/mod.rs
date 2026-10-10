@@ -21,10 +21,7 @@ use crate::ops::{self, Cmd, Event, Level, Status, Worker};
 use crate::settings::Settings;
 use crate::update::{self, ReleaseInfo};
 
-pub const TELEGRAM_GROUP_URL: &str = "https://t.me/nova_txt";
-/// The room the free keys are pinned in (spec item 9), not the group root.
-pub const TELEGRAM_KEYS_URL: &str = "https://t.me/nova_txt/69864";
-pub const DONATE_URL: &str = "https://nova-app.eu/donate";
+
 
 const WIN_W: f32 = 600.0;
 const WIN_H: f32 = 840.0;
@@ -176,23 +173,8 @@ impl App {
         self.busy.is_some()
     }
 
-    /// The "новая версия" button, drawn on both screens (spec item 10: it must
-    /// not disappear after the key is accepted).
-    fn update_banner(&self, ui: &mut egui::Ui) {
-        let Some(rel) = &self.update else { return };
-        let label = format!("⬆  Доступна новая версия — {}", rel.display_version());
-        let btn = egui::Button::new(egui::RichText::new(label).color(egui::Color32::BLACK))
-            .fill(theme::WARN)
-            .corner_radius(egui::CornerRadius::same(theme::RADIUS_SMALL))
-            .min_size(egui::vec2(ui.available_width(), 32.0));
-        if ui.add(btn).clicked() {
-            // Always /latest, never the tag URL from the API response: the point
-            // is to land the user on whatever is newest when they click, not on
-            // the release this process happened to see hours ago.
-            crate::utils::open_url(update::RELEASES_LATEST_URL);
-        }
-        ui.add_space(10.0);
-    }
+    /// The "новая версия" banner (disabled).
+    fn update_banner(&self, _ui: &mut egui::Ui) {}
 
     /// Re-launches this exe elevated and closes the current window.
     ///
@@ -279,22 +261,20 @@ impl eframe::App for App {
         // window shows eframe's clear colour instead — a visible seam across the
         // window wherever the screen is shorter than it is.
         const MARGIN: f32 = 18.0;
-        // The footer is a bottom panel *inside* this frame, so whatever the frame
-        // keeps below itself becomes dead space under the signature — 18 px of it,
-        // which was most of the gap between that line and the window edge. The
-        // footer pays for its own breathing room (`Panel::bottom`'s margin), so
-        // the frame needs almost nothing here.
-        const BOTTOM: f32 = 4.0;
+        const BOTTOM: f32 = 18.0;
         let avail = ui.available_size();
+
         // Narrow on the right so the scroll bar sits out in the border strip
         // rather than in a gutter of its own; the content keeps its full margin
         // because the scrolling area adds it back on the inside.
-        let frame = egui::Frame::central_panel(&ui.style().clone()).inner_margin(egui::Margin {
-            left: MARGIN as i8,
-            right: 4,
-            top: MARGIN as i8,
-            bottom: BOTTOM as i8,
-        });
+        let frame = egui::Frame::central_panel(&ui.style().clone())
+            .fill(theme::BG)
+            .inner_margin(egui::Margin {
+                left: MARGIN as i8,
+                right: 4,
+                top: MARGIN as i8,
+                bottom: BOTTOM as i8,
+            });
         frame.show(ui, |ui| {
             // Height only, and with the margins taken off. Forcing the *width*
             // to the full window pushes the frame's own padding outside it, and
@@ -394,9 +374,9 @@ fn first_screen(_settings: &Settings) -> Screen {
 
 fn title() -> String {
     #[cfg(target_os = "macos")]
-    return format!("Antigravity Unlocker 2 v{} (macOS Edition)", update::current_version());
+    return format!("Antigravity Unlocker v{} (macOS Edition)", update::current_version());
     #[cfg(not(target_os = "macos"))]
-    format!("Antigravity Unlocker 2 v{}", update::current_version())
+    format!("Antigravity Unlocker v{}", update::current_version())
 }
 
 #[cfg(test)]

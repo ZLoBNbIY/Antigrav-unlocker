@@ -82,7 +82,7 @@ impl Kind {
     pub fn label(self) -> &'static str {
         match self {
             Kind::Own => "свой прокси",
-            Kind::Group => "прокси из группы",
+            Kind::Group => "выделенный сервер",
             Kind::Exits => "встроенный выход",
             Kind::Relay => "резервный релей",
             Kind::Direct => "напрямую",
@@ -102,10 +102,7 @@ impl Kind {
 const DEFAULT_ORDER: [Kind; N] = [Kind::Group, Kind::Own, Kind::Relay, Kind::Exits, Kind::Direct, Kind::Vpn];
 
 /// Routes taken first whenever usable and not benched, ahead of anything
-/// measured (owner, 2026-10-05: «если активен прокси от моей группы - то все
-/// запросы к моделям должны идти сначала на него … всё так же как с кастомным
-/// прокси»). The group's server first: it is the one the owner runs and
-/// vouches for; the user's own proxy right after it.
+/// measured. The dedicated server first, the user's own proxy right after it.
 const PINNED: [Kind; 2] = [Kind::Group, Kind::Own];
 
 /// The pinned pair in force: whichever of the group code and the user's own
