@@ -14,7 +14,10 @@ pub fn switch(ui: &mut egui::Ui, on: &mut bool, enabled: bool) -> egui::Response
     } else {
         Sense::hover()
     };
-    let (rect, mut resp) = ui.allocate_exact_size(size, sense);
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    // Give the switch its own interaction ID. In nested/drag-enabled rows the
+    // allocation's implicit response may collide with a parent interaction.
+    let mut resp = ui.interact(rect, ui.next_auto_id(), sense);
 
     if enabled && resp.clicked() {
         *on = !*on;

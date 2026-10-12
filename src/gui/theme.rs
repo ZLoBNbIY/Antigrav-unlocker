@@ -38,8 +38,8 @@ pub const TEXT: Color32 = Color32::from_rgb(0xF0, 0xF6, 0xFC);
 /// Softened secondary text (#C9D1D9).
 pub const SOFT_TEXT: Color32 = Color32::from_rgb(0xC9, 0xD1, 0xD9);
 
-/// Muted metadata & hint text (#8B949E).
-pub const MUTED: Color32 = Color32::from_rgb(0x8B, 0x94, 0x9E);
+/// Secondary labels, tuned to stay readable when selected.
+pub const MUTED: Color32 = Color32::from_rgb(0xC9, 0xD1, 0xD9);
 
 /// Primary accent - vibrant studio red (#DC2626).
 pub const ACCENT: Color32 = Color32::from_rgb(0xDC, 0x26, 0x26);
@@ -131,8 +131,10 @@ pub fn apply(ctx: &egui::Context) {
     visuals.widgets.open.bg_stroke = Stroke::new(1.0, LINE);
     visuals.widgets.open.corner_radius = r;
 
-    visuals.selection.bg_fill = Color32::from_rgba_premultiplied(220, 38, 38, 70);
-    visuals.selection.stroke = Stroke::new(1.0, ACCENT_LINE);
+    // Keep selected muted labels legible: a translucent red highlight over
+    // low-contrast hint text made the characters almost disappear.
+    visuals.selection.bg_fill = Color32::from_rgb(0x3F, 0x17, 0x1B);
+    visuals.selection.stroke = Stroke::new(1.0, ACCENT_HOVER);
 
     ctx.set_theme(egui::ThemePreference::Dark);
     ctx.set_visuals_of(egui::Theme::Dark, visuals);

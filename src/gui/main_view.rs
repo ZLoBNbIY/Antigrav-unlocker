@@ -70,7 +70,7 @@ fn header(app: &mut App, ui: &mut egui::Ui) {
             p.rect_filled(
                 badge_rect,
                 cr,
-                egui::Color32::from_rgba_premultiplied(220, 38, 38, 25),
+                theme::ACCENT,
             );
             p.rect_stroke(
                 badge_rect,
@@ -83,7 +83,7 @@ fn header(app: &mut App, ui: &mut egui::Ui) {
                 egui::Align2::CENTER_CENTER,
                 "v1.1",
                 egui::FontId::proportional(11.0),
-                theme::ACCENT_LINE,
+                egui::Color32::WHITE,
             );
         }
 
@@ -331,8 +331,8 @@ fn antigravity_card(app: &mut App, ui: &mut egui::Ui) {
 fn bypass_master(app: &mut App, ui: &mut egui::Ui) {
     let any_on = app.status.as_ref().is_some_and(|s| s.bypass_on());
     let mut master = any_on;
-    let busy = app.is_busy();
-    let flipped = widgets::switch_row(ui, &mut master, !busy, |ui| {
+    // Keep switches responsive while queued worker operations complete.
+    let flipped = widgets::switch_row(ui, &mut master, true, |ui| {
         let (title, hint) = status::BYPASS_TEXT;
         ui.label(egui::RichText::new(title).size(14.0));
         widgets::hint(ui, hint);
@@ -529,8 +529,6 @@ fn providers_list(app: &mut App, ui: &mut egui::Ui) {
     if providers.is_empty() {
         return;
     }
-    let busy = app.is_busy();
-
     let mut flip: Option<(String, bool)> = None;
     // (from, to) — set the moment the pointer passes over another row, not on
     // release: the row has to follow the cursor while the button is still down.
@@ -572,7 +570,7 @@ fn providers_list(app: &mut App, ui: &mut egui::Ui) {
                     .on_hover_cursor(egui::CursorIcon::Grab);
 
                     let mut on = p.enabled;
-                    if widgets::switch(ui, &mut on, dns_on && !busy).changed() {
+                    if widgets::switch(ui, &mut on, dns_on).changed() {
                         flip = Some((p.name.clone(), on));
                     }
                     // Without rotation only the first enabled one is ever asked,
@@ -673,7 +671,9 @@ fn cap_row(app: &mut App, ui: &mut egui::Ui, cap: Cap) {
         .unwrap_or(State::Off);
     let mut on = state.is_on();
     let blocked = matches!(state, State::Blocked(_));
-    let enabled = !app.is_busy() && !blocked;
+    // Commands are processed serially, so a busy worker need not disable the
+    // UI's switches while it applies the preceding change.
+    let enabled = !blocked;
 
     let note = state.note().map(|s| s.to_string());
     let flipped = widgets::switch_row(ui, &mut on, enabled, |ui| {
