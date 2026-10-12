@@ -233,6 +233,17 @@ fn blocker(relay: Option<&crate::gate::Report>, what: &str) -> Option<crate::gat
 /// A provider's name as it is shown: an acronym stays one, anything else gets
 /// one capital.
 pub fn provider_name(name: &str) -> String {
+    if let Some(endpoint) = name.strip_prefix("custom:") {
+        if let Ok(url) = url::Url::parse(endpoint) {
+            let kind = if url.scheme() == "https" {
+                "DoH"
+            } else {
+                "DoT"
+            };
+            return format!("Мой {kind} · {}", url.host_str().unwrap_or(endpoint));
+        }
+        return format!("Мой DNS ({endpoint})");
+    }
     let lead: String = name.chars().take_while(|c| c.is_alphabetic()).collect();
     if lead.eq_ignore_ascii_case("dns") {
         return name.to_uppercase();
@@ -297,8 +308,8 @@ pub fn switch_text(cap: Cap) -> (&'static str, &'static str) {
         ),
         Cap::DnsRotation => (
             "Ротация между серверами",
-            "Включено: запрос идёт ко всем включённым серверам, ответ сверяется \
-             с эталонным резолвером. Выключено: используется только первый \
+            "При включении запрос идёт ко всем включённым серверам, ответ сверяется \
+             с эталонным резолвером. При выключении используется только первый \
              включённый в списке, запасных не будет.",
         ),
     }

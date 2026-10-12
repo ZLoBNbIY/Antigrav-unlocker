@@ -26,7 +26,7 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
         );
         ui.add_space(4.0);
         ui.label(
-            egui::RichText::new("v1.1")
+            egui::RichText::new(format!("v{}", crate::update::current_version()))
                 .size(13.0)
                 .color(theme::ACCENT),
         );

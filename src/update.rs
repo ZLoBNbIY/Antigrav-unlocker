@@ -33,7 +33,7 @@ const MAX_BODY: usize = 256 * 1024;
 /// compare itself against tag `v2.12.2_3` as if it were `2.12.2`, and claim an
 /// update that does not exist.
 pub fn current_version() -> &'static str {
-    option_env!("AG_FULL_VERSION").unwrap_or("1.1")
+    option_env!("AG_FULL_VERSION").unwrap_or("1.3")
 }
 
 /// Information about a GitHub release asset.

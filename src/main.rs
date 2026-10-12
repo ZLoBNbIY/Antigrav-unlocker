@@ -23,6 +23,7 @@ mod background;
 mod canary;
 mod dns;
 mod dns_client;
+mod dot;
 mod dns_forwarder;
 mod doh;
 mod egress;

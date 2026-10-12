@@ -330,6 +330,8 @@ pub enum Cmd {
     SetOwnProxy(String),
     SetGroupKey(String),
     SetProvider(String, bool),
+    AddCustomDns(String),
+    RemoveCustomDns(String),
     /// The whole pool in the order the user dragged it into.
     ReorderProviders(Vec<String>),
     /// Everything on, in the order that works: the patch, auto-patch, then the
@@ -666,6 +668,45 @@ fn run_worker(
                 let rewrote = reapply_dns_rules(&mut ctx);
                 // Only when the rules were actually rewritten is there anything
                 // new on the machine to read back.
+                push_status(
+                    &mut ctx,
+                    if rewrote {
+                        Scan::System
+                    } else {
+                        Scan::Settings
+                    },
+                );
+            }
+            Cmd::AddCustomDns(address) => match ctx.settings.add_custom_dns_server(&address) {
+                Ok(()) => {
+                    ctx.settings.save();
+                    ctx.log(
+                        Level::Ok,
+                        format!("Добавлен пользовательский DNS {}", address.trim()),
+                    );
+                    let rewrote = reapply_dns_rules(&mut ctx);
+                    push_status(
+                        &mut ctx,
+                        if rewrote {
+                            Scan::System
+                        } else {
+                            Scan::Settings
+                        },
+                    );
+                }
+                Err(message) => {
+                    ctx.log(Level::Warn, message);
+                    push_status(&mut ctx, Scan::Settings);
+                }
+            },
+            Cmd::RemoveCustomDns(address) => {
+                ctx.settings.remove_custom_dns_server(&address);
+                ctx.settings.save();
+                ctx.log(
+                    Level::Info,
+                    format!("Пользовательский DNS {} удалён", address),
+                );
+                let rewrote = reapply_dns_rules(&mut ctx);
                 push_status(
                     &mut ctx,
                     if rewrote {

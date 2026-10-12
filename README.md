@@ -4,11 +4,11 @@ Windows x64-версия Antigravity Unlocker с исходным кодом и 
 
 ## Готовый файл
 
-Запустите `Ag_Unlocker_1.1.exe` от имени администратора. 
-SHA-256 файла:
+Запустите `target\release\ag_unlocker.exe` от имени администратора.
+SHA-256 актуальной сборки:
 
 ```text
-1496725024DA7FC55B213022CD9CA3CECF325DED1C6A422F0631981C0EEAE5CB
+B884D93E584934B41595108A000B67157E3E9C10879CDE6448A4E61F1D39A262
 ```
 
 ## Сборка из исходников

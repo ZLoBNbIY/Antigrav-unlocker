@@ -67,11 +67,7 @@ fn header(app: &mut App, ui: &mut egui::Ui) {
         if ui.is_rect_visible(badge_rect) {
             let p = ui.painter();
             let cr = egui::CornerRadius::same(4);
-            p.rect_filled(
-                badge_rect,
-                cr,
-                theme::ACCENT,
-            );
+            p.rect_filled(badge_rect, cr, theme::ACCENT);
             p.rect_stroke(
                 badge_rect,
                 cr,
@@ -81,7 +77,7 @@ fn header(app: &mut App, ui: &mut egui::Ui) {
             p.text(
                 badge_rect.center(),
                 egui::Align2::CENTER_CENTER,
-                "v1.1",
+                &format!("v{}", crate::update::current_version()),
                 egui::FontId::proportional(11.0),
                 egui::Color32::WHITE,
             );
@@ -516,11 +512,7 @@ fn providers_list(app: &mut App, ui: &mut egui::Ui) {
     // Copied out before anything is drawn: the rows below need `&mut app` for
     // the rotation switch, and holding a borrow of `app.status` across that is
     // what the borrow checker (rightly) refuses.
-    let Some((dns_on, rotating)) = app
-        .status
-        .as_ref()
-        .map(|s| (s.dns.is_on(), s.dns_rotation.is_on()))
-    else {
+    let Some(rotating) = app.status.as_ref().map(|s| s.dns_rotation.is_on()) else {
         return;
     };
     // Drawn from the window's own copy, which a drag rearranges immediately; the
@@ -530,6 +522,7 @@ fn providers_list(app: &mut App, ui: &mut egui::Ui) {
         return;
     }
     let mut flip: Option<(String, bool)> = None;
+    let mut remove_custom: Option<String> = None;
     // (from, to) — set the moment the pointer passes over another row, not on
     // release: the row has to follow the cursor while the button is still down.
     let mut moved: Option<(usize, usize)> = None;
@@ -570,7 +563,7 @@ fn providers_list(app: &mut App, ui: &mut egui::Ui) {
                     .on_hover_cursor(egui::CursorIcon::Grab);
 
                     let mut on = p.enabled;
-                    if widgets::switch(ui, &mut on, dns_on).changed() {
+                    if widgets::switch(ui, &mut on, true).changed() {
                         flip = Some((p.name.clone(), on));
                     }
                     // Without rotation only the first enabled one is ever asked,
@@ -580,6 +573,15 @@ fn providers_list(app: &mut App, ui: &mut egui::Ui) {
                     ui.label(if idle { text.color(theme::MUTED) } else { text });
                     if idle {
                         widgets::hint(ui, "— не используется");
+                    }
+                    if let Some(address) = p.name.strip_prefix("custom:") {
+                        if ui
+                            .small_button("✕")
+                            .on_hover_text("Удалить пользовательский DNS")
+                            .clicked()
+                        {
+                            remove_custom = Some(address.to_string());
+                        }
                     }
                 })
                 .response;
@@ -604,10 +606,53 @@ fn providers_list(app: &mut App, ui: &mut egui::Ui) {
         ui.separator();
         ui.add_space(4.0);
         cap_row(app, ui, Cap::DnsRotation);
+
+        ui.add_space(8.0);
+        widgets::hint(
+            ui,
+            "Укажите по одному серверу в строке: IPv4 для обычного DNS, https://host/dns-query для DoH или tls://host:853 для DoT. Сервер должен подменять ответы Google.",
+        );
+        let busy = app.is_busy();
+        let mut remove_input: Option<usize> = None;
+        for index in 0..app.custom_dns_inputs.len() {
+            ui.horizontal(|ui| {
+                let field = egui::TextEdit::singleline(&mut app.custom_dns_inputs[index])
+                    .hint_text("IPv4, https://… или tls://…")
+                    .desired_width((ui.available_width() - 145.0).max(120.0));
+                ui.add_enabled(!busy, field);
+                if ui
+                    .add_enabled(
+                        !busy && !app.custom_dns_inputs[index].trim().is_empty(),
+                        egui::Button::new("Сохранить"),
+                    )
+                    .clicked()
+                {
+                    let address = app.custom_dns_inputs[index].trim().to_string();
+                    app.worker.send(Cmd::AddCustomDns(address));
+                    app.custom_dns_inputs[index].clear();
+                }
+                if app.custom_dns_inputs.len() > 1
+                    && ui.small_button("−").on_hover_text("Убрать строку ввода").clicked()
+                {
+                    remove_input = Some(index);
+                }
+            });
+        }
+        if let Some(index) = remove_input {
+            app.custom_dns_inputs.remove(index);
+        }
+        ui.add_enabled_ui(!busy && app.custom_dns_inputs.len() < 16, |ui| {
+            if ui.small_button("＋ Ещё строка DNS").clicked() {
+                app.custom_dns_inputs.push(String::new());
+            }
+        });
     });
 
     if let Some((name, on)) = flip {
         app.worker.send(Cmd::SetProvider(name, on));
+    }
+    if let Some(address) = remove_custom {
+        app.worker.send(Cmd::RemoveCustomDns(address));
     }
     if let Some((from, to)) = moved {
         if from < app.providers_local.len() && to < app.providers_local.len() {

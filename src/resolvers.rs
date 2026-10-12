@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::Mutex;
@@ -63,7 +63,73 @@ pub struct Provider {
 /// for them to be read out of, and what a user needs in order to turn one off is
 /// the name they already see in the log line.
 pub fn provider_names() -> Vec<&'static str> {
-    PROVIDERS.iter().map(|p| p.name).collect()
+    names_with_custom(&custom_dns_servers())
+}
+
+fn names_with_custom(custom: &[String]) -> Vec<&'static str> {
+    let mut names: Vec<&'static str> = PROVIDERS.iter().map(|p| p.name).collect();
+    names.extend(custom.iter().map(|ip| custom_provider_name(ip)));
+    names
+}
+
+fn custom_dns_servers() -> Vec<String> {
+    crate::settings::custom_dns_servers()
+        .into_iter()
+        .filter_map(|s| crate::settings::normalize_custom_dns_server(&s).ok())
+        .collect()
+}
+
+fn custom_doh_endpoint(spec: &str) -> Option<&'static crate::doh::Endpoint> {
+    static ENDPOINTS: std::sync::OnceLock<Mutex<HashMap<String, &'static crate::doh::Endpoint>>> =
+        std::sync::OnceLock::new();
+    let endpoints = ENDPOINTS.get_or_init(|| Mutex::new(HashMap::new()));
+    {
+        let endpoints = endpoints.lock().ok()?;
+        if let Some(endpoint) = endpoints.get(spec) {
+            return Some(*endpoint);
+        }
+    }
+
+    let url = url::Url::parse(spec).ok()?;
+    if url.scheme() != "https" || url.port_or_known_default() != Some(443) {
+        return None;
+    }
+    let host = url.host_str()?.to_string();
+    let path = url.path().to_string();
+    let addresses: Vec<String> = (host.as_str(), 443)
+        .to_socket_addrs()
+        .ok()?
+        .map(|address| address.ip().to_string())
+        .collect();
+    if addresses.is_empty() {
+        return None;
+    }
+    let host = Box::leak(host.into_boxed_str());
+    let path = Box::leak(path.into_boxed_str());
+    let addrs: Vec<&'static str> = addresses
+        .iter()
+        .map(|address| intern_custom_ip(address))
+        .collect();
+    let addrs = Box::leak(addrs.into_boxed_slice());
+    let endpoint = Box::leak(Box::new(crate::doh::Endpoint { host, path, addrs }));
+    let mut endpoints = endpoints.lock().ok()?;
+    if let Some(existing) = endpoints.get(spec) {
+        return Some(*existing);
+    }
+    endpoints.insert(spec.to_string(), endpoint);
+    Some(endpoint)
+}
+
+fn custom_provider_name(ip: &str) -> &'static str {
+    static NAMES: std::sync::OnceLock<Mutex<HashMap<String, &'static str>>> =
+        std::sync::OnceLock::new();
+    let names = NAMES.get_or_init(|| Mutex::new(HashMap::new()));
+    let Ok(mut names) = names.lock() else {
+        return "custom-dns";
+    };
+    *names
+        .entry(ip.to_string())
+        .or_insert_with(|| Box::leak(format!("custom:{}", ip).into_boxed_str()) as &'static str)
 }
 
 pub const PROVIDERS: &[Provider] = &[
@@ -380,11 +446,21 @@ pub fn fallback_v4() -> Vec<&'static str> {
     // one, which is what a nameserver list needs.
     // Windows tries nameservers in the order given, so the user's order is what
     // decides which service sees a lookup first.
-    let mut list: Vec<&'static str> = in_user_order()
-        .into_iter()
-        .filter(|p| !denied(p.name))
-        .filter_map(|p| p.v4.first().copied())
-        .collect();
+    let mut list = Vec::new();
+    for name in ordered_provider_names() {
+        if denied(name) {
+            continue;
+        }
+        if let Some(provider) = PROVIDERS.iter().find(|p| p.name == name) {
+            if let Some(ip) = provider.v4.first() {
+                list.push(*ip);
+            }
+        } else if let Some(ip) = name.strip_prefix("custom:") {
+            if ip.parse::<Ipv4Addr>().is_ok() {
+                list.push(intern_custom_ip(ip));
+            }
+        }
+    }
     if !crate::settings::rotation_enabled() {
         list.truncate(1);
     }
@@ -894,10 +970,20 @@ pub fn warm(names: &[&str], if_index: u32) {
 /// substitution, so its head is the one most likely to still be substituting.
 fn only_provider() -> Option<&'static str> {
     let disabled = crate::settings::disabled_providers_cached();
-    in_user_order()
+    ordered_provider_names()
         .into_iter()
-        .map(|p| p.name)
         .find(|n| !disabled.iter().any(|d| d.eq_ignore_ascii_case(n)))
+}
+
+fn intern_custom_ip(ip: &str) -> &'static str {
+    static IPS: std::sync::OnceLock<Mutex<HashMap<String, &'static str>>> =
+        std::sync::OnceLock::new();
+    let ips = IPS.get_or_init(|| Mutex::new(HashMap::new()));
+    let Ok(mut ips) = ips.lock() else {
+        return "127.0.0.1";
+    };
+    *ips.entry(ip.to_string())
+        .or_insert_with(|| Box::leak(ip.to_string().into_boxed_str()) as &'static str)
 }
 
 /// The pool laid out the way the user arranged it.
@@ -951,16 +1037,44 @@ fn in_user_order() -> Vec<&'static Provider> {
 /// enabled empties the rule's fallback list, and a rule with no nameserver is
 /// worse than no rule at all — hence the guard in `ops`.
 pub fn udp_provider_names() -> Vec<&'static str> {
-    in_user_order()
+    ordered_provider_names()
         .into_iter()
-        .filter(|p| !p.v4.is_empty())
-        .map(|p| p.name)
+        .filter(|name| {
+            name.strip_prefix("custom:")
+                .is_some_and(|ip| ip.parse::<Ipv4Addr>().is_ok())
+                || PROVIDERS
+                    .iter()
+                    .any(|p| p.name == *name && !p.v4.is_empty())
+        })
         .collect()
 }
 
 /// The provider names in the user's order — what the window's list draws.
 pub fn ordered_provider_names() -> Vec<&'static str> {
-    in_user_order().into_iter().map(|p| p.name).collect()
+    let mut available: Vec<&'static str> = in_user_order().into_iter().map(|p| p.name).collect();
+    available.extend(
+        custom_dns_servers()
+            .iter()
+            .map(|ip| custom_provider_name(ip)),
+    );
+    let wanted = crate::settings::provider_order_cached();
+    let mut ordered = Vec::new();
+    for name in wanted {
+        if let Some(available_name) = available
+            .iter()
+            .find(|available_name| available_name.eq_ignore_ascii_case(&name))
+        {
+            if !ordered.contains(available_name) {
+                ordered.push(*available_name);
+            }
+        }
+    }
+    for name in available {
+        if !ordered.contains(&name) {
+            ordered.push(name);
+        }
+    }
+    ordered
 }
 
 /// Switched off by name in the window.
@@ -1020,6 +1134,31 @@ fn ask_provider(
             Some(reply)
         }
     }
+}
+
+fn ask_pool_provider(
+    idx: usize,
+    name: &'static str,
+    custom_ip: Option<&str>,
+    query: &[u8],
+    if_index: u32,
+    timeout: Duration,
+) -> Option<Vec<u8>> {
+    if idx < PROVIDERS.len() {
+        return ask_provider(&PROVIDERS[idx], query, if_index, timeout);
+    }
+    if provider_disabled(name) {
+        return None;
+    }
+    let address = custom_ip?;
+    if let Ok(ip) = address.parse::<Ipv4Addr>() {
+        return dns_client::query_raw_via(query, ip, if_index, timeout).ok();
+    }
+    if address.starts_with("https://") {
+        let endpoint = custom_doh_endpoint(address)?;
+        return crate::doh::query(endpoint, query, timeout).ok();
+    }
+    crate::dot::query(address, query, timeout, if_index).ok()
 }
 
 /// What one racer produced.
@@ -1308,12 +1447,26 @@ fn resolve_upstream(
         QUERY_TIMEOUT
     };
 
+    let custom_servers = custom_dns_servers();
+    let provider_names = names_with_custom(&custom_servers);
+    let provider_count = provider_names.len();
+
     if let Some((idx, verdict)) = cached_choice(&key) {
-        let budget = one_shot_floor(&PROVIDERS[idx], one_shot);
-        if let Some(reply) = ask_provider(&PROVIDERS[idx], query, if_index, budget) {
-            let reply = vet(reply, verdict, !from_client, Some(key.0.as_str()));
-            remember_answer(query, &reply, PROVIDERS[idx].name, verdict, from_client);
-            return prefer_substituted(query, from_client, (reply, PROVIDERS[idx].name, verdict));
+        let cached_provider = provider_names.get(idx).copied();
+        let budget = if idx < PROVIDERS.len() {
+            one_shot_floor(&PROVIDERS[idx], one_shot)
+        } else {
+            one_shot
+        };
+        let custom_ip = custom_servers
+            .get(idx.saturating_sub(PROVIDERS.len()))
+            .map(String::as_str);
+        if let Some(name) = cached_provider.filter(|_| idx < provider_count) {
+            if let Some(reply) = ask_pool_provider(idx, name, custom_ip, query, if_index, budget) {
+                let reply = vet(reply, verdict, !from_client, Some(key.0.as_str()));
+                remember_answer(query, &reply, name, verdict, from_client);
+                return prefer_substituted(query, from_client, (reply, name, verdict));
+            }
         }
         // The chosen provider went away; re-race rather than keep asking it.
         forget_choice(&key);
@@ -1321,24 +1474,40 @@ fn resolve_upstream(
 
     if !classifiable {
         let start = ROTATION.fetch_add(1, Ordering::Relaxed);
-        for step in 0..PROVIDERS.len() {
-            let idx = (start + step) % PROVIDERS.len();
-            if let Some(reply) = ask_provider(&PROVIDERS[idx], query, if_index, one_shot) {
-                return Some((reply, PROVIDERS[idx].name, Verdict::Unknown));
+        for step in 0..provider_count {
+            let idx = (start + step) % provider_count;
+            let custom_ip = custom_servers
+                .get(idx.saturating_sub(PROVIDERS.len()))
+                .map(String::as_str);
+            if let Some(reply) = ask_pool_provider(
+                idx,
+                provider_names[idx],
+                custom_ip,
+                query,
+                if_index,
+                one_shot,
+            ) {
+                return Some((reply, provider_names[idx], Verdict::Unknown));
             }
         }
         return None;
     }
 
     let (tx, rx) = mpsc::channel::<Heat>();
-    for idx in 0..PROVIDERS.len() {
+    for idx in 0..provider_count {
         let tx = tx.clone();
         let q = query.to_vec();
+        let name = provider_names[idx];
+        let custom_ip = custom_servers
+            .get(idx.saturating_sub(PROVIDERS.len()))
+            .cloned();
         thread::spawn(move || {
             // The generous timeout is right here: nothing blocks on one racer,
             // the race as a whole is bounded by RACE_BUDGET, and a straggler
             // simply sends into a channel nobody is reading any more.
-            if let Some(reply) = ask_provider(&PROVIDERS[idx], &q, if_index, QUERY_TIMEOUT) {
+            if let Some(reply) =
+                ask_pool_provider(idx, name, custom_ip.as_deref(), &q, if_index, QUERY_TIMEOUT)
+            {
                 tx.send(Heat::Provider(idx, reply)).ok();
             }
         });
@@ -1458,20 +1627,22 @@ fn resolve_upstream(
                 .or_else(|| pick(&replies, &reference, Verdict::Substituted));
             if let Some(hit) = hit {
                 let name = key.0.clone();
-                remember_choice(key, replies[hit].0, Verdict::Substituted);
+                if replies[hit].0 < PROVIDERS.len() {
+                    remember_choice(key, replies[hit].0, Verdict::Substituted);
+                }
                 let (idx, reply) = replies.swap_remove(hit);
                 let reply = vet(reply, Verdict::Substituted, !from_client, Some(&name));
                 remember_answer(
                     query,
                     &reply,
-                    PROVIDERS[idx].name,
+                    provider_names[idx],
                     Verdict::Substituted,
                     from_client,
                 );
-                return Some((reply, PROVIDERS[idx].name, Verdict::Substituted));
+                return Some((reply, provider_names[idx], Verdict::Substituted));
             }
         }
-        if replies.len() == PROVIDERS.len() && got_reference && !still_learning {
+        if replies.len() == provider_count && got_reference && !still_learning {
             break;
         }
     }
@@ -1492,7 +1663,7 @@ fn resolve_upstream(
     // the diagnostics with it.
     if from_client && !replies.is_empty() && !dns_client::answer_addrs(&replies[best].1).is_empty()
     {
-        let heard: Vec<&str> = replies.iter().map(|(i, _)| PROVIDERS[*i].name).collect();
+        let heard: Vec<&str> = replies.iter().map(|(i, _)| provider_names[*i]).collect();
         crate::dns_forwarder::log_race(&key.0, &heard, got_reference);
     }
     let verdict = classify(
@@ -1511,8 +1682,8 @@ fn resolve_upstream(
     forget_choice(&key);
     let (idx, reply) = replies.swap_remove(best);
     let reply = vet(reply, verdict, !from_client, Some(key.0.as_str()));
-    remember_answer(query, &reply, PROVIDERS[idx].name, verdict, from_client);
-    prefer_substituted(query, from_client, (reply, PROVIDERS[idx].name, verdict))
+    remember_answer(query, &reply, provider_names[idx], verdict, from_client);
+    prefer_substituted(query, from_client, (reply, provider_names[idx], verdict))
 }
 
 /// Filters a reply before it goes back to the client.
@@ -1792,6 +1963,14 @@ mod tests {
 
     fn v4(s: &str) -> IpAddr {
         IpAddr::V4(s.parse().unwrap())
+    }
+
+    #[test]
+    fn custom_dns_addresses_become_named_pool_entries() {
+        let names = names_with_custom(&["203.0.113.53".to_string(), "198.51.100.4".to_string()]);
+        assert_eq!(names.len(), PROVIDERS.len() + 2);
+        assert_eq!(names[PROVIDERS.len()], "custom:203.0.113.53");
+        assert_eq!(names[PROVIDERS.len() + 1], "custom:198.51.100.4");
     }
 
     #[test]

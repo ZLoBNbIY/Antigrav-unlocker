@@ -197,14 +197,14 @@ fn main() {
         res.set(
             "Comments",
             &format!(
-                "Antigravity Unlocker v1.1. \
+                "Antigravity Unlocker v{}. \
                  mark {} build {}",
-                static_canary, release_token
+                version, static_canary, release_token
             ),
         );
-        // Kept in step with Cargo.toml, which build_rust.py rewrites per release.
-        res.set("FileVersion", "1.1.0.0");
-        res.set("ProductVersion", "1.1");
+        res.set("FileVersion", &format!("{}.0", version));
+        let product_version = version.split('.').take(2).collect::<Vec<_>>().join(".");
+        res.set("ProductVersion", &product_version);
         res.compile().unwrap();
     }
 }

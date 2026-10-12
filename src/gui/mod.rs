@@ -74,6 +74,7 @@ pub struct App {
     busy: Option<String>,
 
     own_proxy_input: String,
+    custom_dns_inputs: Vec<String>,
     /// The group code field; sent once it holds something shaped like a code.
     group_key_input: String,
     /// The group code last handed to the worker, so the field (which shows the
@@ -155,6 +156,7 @@ impl App {
             log_all_selected: false,
             busy: None,
             own_proxy_input: settings.own_proxy.clone(),
+            custom_dns_inputs: vec![String::new(), String::new()],
             // The saved code stays in the field across restarts and updates,
             // where it can be seen and replaced.
             group_key_input: settings.group_key.clone(),

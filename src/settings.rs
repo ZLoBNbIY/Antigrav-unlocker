@@ -104,6 +104,11 @@ pub struct Settings {
     /// so a provider added in a later release is never silently dropped.
     pub provider_order: Vec<String>,
 
+    /// Additional DNS providers supplied by the user: a bare IPv4 for UDP DNS,
+    /// an https:// URL for DoH, or tls:// / dot:// for DNS-over-TLS.
+    #[serde(default)]
+    pub custom_dns_servers: Vec<String>,
+
     /// Unused since D25 (`2.14.0_1`): the rules are installed whatever the
     /// tunnel does, and the relay decides at runtime what they answer. Kept so
     /// a file written by an older build still loads, and an older build reading
@@ -152,6 +157,7 @@ impl Default for Settings {
             disabled_providers: Vec::new(),
             rotate_providers: true,
             provider_order: Vec::new(),
+            custom_dns_servers: Vec::new(),
             vpn_detect: true,
             verify_tls: true,
             own_proxy: String::new(),
@@ -226,6 +232,66 @@ impl Settings {
         if !on {
             self.disabled_providers.push(name.to_string());
         }
+    }
+
+    pub fn add_custom_dns_server(&mut self, address: &str) -> Result<(), &'static str> {
+        let normalized = normalize_custom_dns_server(address)?;
+        if self.custom_dns_servers.iter().any(|s| s == &normalized) {
+            return Err("Этот DNS-сервер уже добавлен");
+        }
+        if self.custom_dns_servers.len() >= 16 {
+            return Err("Можно добавить не более 16 пользовательских DNS-серверов");
+        }
+        self.custom_dns_servers.push(normalized);
+        Ok(())
+    }
+
+    pub fn remove_custom_dns_server(&mut self, address: &str) {
+        self.custom_dns_servers.retain(|s| s != address);
+        let name = format!("custom:{address}");
+        self.disabled_providers.retain(|s| s != &name);
+        self.provider_order.retain(|s| s != &name);
+    }
+}
+
+/// Canonical form accepted by the UI and serialized to `settings.json`.
+pub fn normalize_custom_dns_server(value: &str) -> Result<String, &'static str> {
+    let value = value.trim();
+    if let Ok(ip) = value.parse::<std::net::Ipv4Addr>() {
+        if ip.is_unspecified() || ip.is_broadcast() || ip.is_multicast() {
+            return Err("Этот IPv4-адрес нельзя использовать как DNS-сервер");
+        }
+        return Ok(ip.to_string());
+    }
+
+    let mut url = url::Url::parse(value)
+        .map_err(|_| "Введите IPv4-адрес, https://host/dns-query или tls://host:853")?;
+    if url.host_str().is_none() || !url.username().is_empty() || url.password().is_some() {
+        return Err("В адресе DNS не должно быть логина или пароля");
+    }
+    if url.query().is_some() || url.fragment().is_some() {
+        return Err("В адресе DoH/DoT не используйте query-параметры или fragment");
+    }
+
+    match url.scheme() {
+        "https" => {
+            if url.port_or_known_default() != Some(443) {
+                return Err("DoH сейчас поддерживает HTTPS-порт 443");
+            }
+            Ok(url.to_string())
+        }
+        "tls" | "dot" => {
+            if url.path() != "/" && !url.path().is_empty() {
+                return Err("Для DoT укажите только имя сервера и порт, без пути");
+            }
+            let port = url.port().unwrap_or(853);
+            url.set_scheme("tls")
+                .map_err(|_| "Неверная схема DNS-over-TLS")?;
+            url.set_port(Some(port))
+                .map_err(|_| "Неверный порт DNS-over-TLS")?;
+            Ok(url.to_string())
+        }
+        _ => Err("Поддерживаются IPv4, https:// (DoH) и tls:// (DoT)"),
     }
 }
 
@@ -372,6 +438,10 @@ fn cached_from_disk() -> Settings {
 
 pub fn disabled_providers_cached() -> Vec<String> {
     cached().disabled_providers
+}
+
+pub fn custom_dns_servers() -> Vec<String> {
+    cached().custom_dns_servers
 }
 
 /// The user's provider order, for the resolver pool to lay itself out by.
@@ -551,6 +621,32 @@ mod tests {
         assert_eq!(s.disabled_providers.len(), 1);
         s.set_provider_enabled("dns-ai", true);
         assert!(s.disabled_providers.is_empty());
+    }
+
+    #[test]
+    fn custom_dns_servers_are_validated_normalized_and_removable() {
+        let mut s = Settings::default();
+        assert!(s.add_custom_dns_server(" 203.0.113.53 ").is_ok());
+        assert_eq!(s.custom_dns_servers, vec!["203.0.113.53"]);
+        assert!(s.add_custom_dns_server("203.0.113.53").is_err());
+        assert!(s.add_custom_dns_server("not an address").is_err());
+        assert!(s.add_custom_dns_server("0.0.0.0").is_err());
+        assert!(s
+            .add_custom_dns_server("https://dns.example/dns-query")
+            .is_ok());
+        assert!(s.add_custom_dns_server("dot://dns.example").is_ok());
+        assert!(s.custom_dns_servers[1].starts_with("https://"));
+        assert!(s.custom_dns_servers[2].starts_with("tls://"));
+        let doh = s.custom_dns_servers[1].clone();
+        let dot = s.custom_dns_servers[2].clone();
+        s.set_provider_enabled("custom:203.0.113.53", false);
+        s.provider_order.push("custom:203.0.113.53".into());
+        s.remove_custom_dns_server("203.0.113.53");
+        s.remove_custom_dns_server(&doh);
+        s.remove_custom_dns_server(&dot);
+        assert!(s.custom_dns_servers.is_empty());
+        assert!(s.disabled_providers.is_empty());
+        assert!(s.provider_order.is_empty());
     }
 
     #[test]
