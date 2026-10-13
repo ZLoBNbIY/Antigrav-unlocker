@@ -290,6 +290,8 @@ pub enum Event {
     /// `Some(what)` while an action runs, `None` when the queue drains. The UI
     /// dims the switches in between so a second click cannot queue a race.
     Busy(Option<String>),
+    /// Result of an on-demand DNS server test (provider name and latency or error).
+    PingResult(String, Result<Duration, String>),
 }
 
 /// UI → worker.
@@ -332,6 +334,12 @@ pub enum Cmd {
     SetProvider(String, bool),
     AddCustomDns(String),
     RemoveCustomDns(String),
+    /// Test round-trip latency to a specific provider.
+    PingProvider(String),
+    /// Test all DNS providers in pool.
+    PingAllProviders,
+    /// Result from a ping worker thread back to main worker.
+    PingDone(String, Result<Duration, String>),
     /// The whole pool in the order the user dragged it into.
     ReorderProviders(Vec<String>),
     /// Everything on, in the order that works: the patch, auto-patch, then the
@@ -715,6 +723,34 @@ fn run_worker(
                         Scan::Settings
                     },
                 );
+            }
+            Cmd::PingProvider(name) => {
+                let back = own.clone();
+                std::thread::Builder::new()
+                    .name("dns-ping".to_string())
+                    .spawn(move || {
+                        let res = crate::resolvers::ping_provider(&name);
+                        let _ = back.send(Cmd::PingDone(name, res));
+                    })
+                    .ok();
+            }
+            Cmd::PingAllProviders => {
+                let list = crate::resolvers::ordered_provider_names();
+                for name in list {
+                    let back = own.clone();
+                    let name_str = name.to_string();
+                    std::thread::Builder::new()
+                        .name("dns-ping".to_string())
+                        .spawn(move || {
+                            let res = crate::resolvers::ping_provider(&name_str);
+                            let _ = back.send(Cmd::PingDone(name_str, res));
+                        })
+                        .ok();
+                }
+            }
+            Cmd::PingDone(name, res) => {
+                let _ = ctx.events.send(Event::PingResult(name, res));
+                (ctx.wake)();
             }
         }
     }

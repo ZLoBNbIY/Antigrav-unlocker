@@ -281,6 +281,7 @@ impl App {
                 }
                 Event::Status(s) => self.status = Some(*s),
                 Event::Busy(what) => self.busy = what,
+                Event::PingResult(_, _) => {}
             }
             any = true;
         }

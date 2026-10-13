@@ -1161,6 +1161,68 @@ fn ask_pool_provider(
     crate::dot::query(address, query, timeout, if_index).ok()
 }
 
+/// Tests connectivity and latency to a given provider by name (either built-in
+/// or custom). Returns the round-trip duration or an error description.
+pub fn ping_provider(name: &str) -> Result<Duration, String> {
+    let test_query = dns_client::build_query("google.com", 0x7E57);
+    let start = Instant::now();
+    let timeout = Duration::from_millis(2500);
+
+    if let Some(endpoint) = name.strip_prefix("custom:") {
+        if let Ok(ip) = endpoint.parse::<Ipv4Addr>() {
+            let reply = dns_client::query_raw_via(&test_query, ip, 0, timeout)
+                .map_err(|e| format!("нет ответа от {ip}: {e}"))?;
+            if dns_client::answer_addrs(&reply).is_empty() {
+                return Err("сервер ответил, но не вернул IP-адресов".into());
+            }
+            return Ok(start.elapsed());
+        }
+        if endpoint.starts_with("https://") {
+            let ep = custom_doh_endpoint(endpoint)
+                .ok_or_else(|| "не удалось разрешить адрес DoH".to_string())?;
+            let reply = crate::doh::query(ep, &test_query, timeout)?;
+            if dns_client::answer_addrs(&reply).is_empty() {
+                return Err("DoH ответил, но не вернул IP-адресов".into());
+            }
+            return Ok(start.elapsed());
+        }
+        if endpoint.starts_with("tls://") || endpoint.starts_with("dot://") {
+            let reply = crate::dot::query(endpoint, &test_query, timeout, 0)?;
+            if dns_client::answer_addrs(&reply).is_empty() {
+                return Err("DoT ответил, но не вернул IP-адресов".into());
+            }
+            return Ok(start.elapsed());
+        }
+        return Err("неподдерживаемый протокол".into());
+    }
+
+    if let Some(provider) = PROVIDERS.iter().find(|p| p.name.eq_ignore_ascii_case(name)) {
+        match provider.transport {
+            Transport::Udp => {
+                for server in provider.v4 {
+                    if let Ok(ip) = server.parse::<Ipv4Addr>() {
+                        if let Ok(reply) = dns_client::query_raw_via(&test_query, ip, 0, timeout) {
+                            if !dns_client::answer_addrs(&reply).is_empty() {
+                                return Ok(start.elapsed());
+                            }
+                        }
+                    }
+                }
+                return Err("UDP DNS не ответил".into());
+            }
+            Transport::Doh(ep) => {
+                let reply = crate::doh::query(ep, &test_query, timeout)?;
+                if dns_client::answer_addrs(&reply).is_empty() {
+                    return Err("DoH ответил без адресов".into());
+                }
+                return Ok(start.elapsed());
+            }
+        }
+    }
+
+    Err("провайдер не найден".into())
+}
+
 /// What one racer produced.
 enum Heat {
     /// A provider's raw reply to the question the client asked.

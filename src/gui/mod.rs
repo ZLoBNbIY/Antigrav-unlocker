@@ -75,6 +75,10 @@ pub struct App {
 
     own_proxy_input: String,
     custom_dns_inputs: Vec<String>,
+    /// Live results of pinging DNS providers (name -> Ok(Duration) or Err(message))
+    ping_results: std::collections::HashMap<String, Result<std::time::Duration, String>>,
+    /// Providers currently being tested
+    ping_in_flight: std::collections::HashSet<String>,
     /// The group code field; sent once it holds something shaped like a code.
     group_key_input: String,
     /// The group code last handed to the worker, so the field (which shows the
@@ -157,6 +161,8 @@ impl App {
             busy: None,
             own_proxy_input: settings.own_proxy.clone(),
             custom_dns_inputs: vec![String::new(), String::new()],
+            ping_results: std::collections::HashMap::new(),
+            ping_in_flight: std::collections::HashSet::new(),
             // The saved code stays in the field across restarts and updates,
             // where it can be seen and replaced.
             group_key_input: settings.group_key.clone(),
@@ -173,6 +179,18 @@ impl App {
 
     fn is_busy(&self) -> bool {
         self.busy.is_some()
+    }
+
+    pub fn trigger_ping(&mut self, name: &str) {
+        self.ping_in_flight.insert(name.to_string());
+        self.worker.send(Cmd::PingProvider(name.to_string()));
+    }
+
+    pub fn trigger_ping_all(&mut self) {
+        for p in &self.providers_local {
+            self.ping_in_flight.insert(p.name.clone());
+        }
+        self.worker.send(Cmd::PingAllProviders);
     }
 
     /// The "новая версия" banner (disabled).
@@ -233,6 +251,10 @@ impl App {
                     self.status = Some(*status);
                 }
                 Event::Busy(what) => self.busy = what,
+                Event::PingResult(name, res) => {
+                    self.ping_in_flight.remove(&name);
+                    self.ping_results.insert(name, res);
+                }
             }
         }
     }

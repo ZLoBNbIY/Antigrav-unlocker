@@ -95,6 +95,48 @@ fn header(app: &mut App, ui: &mut egui::Ui) {
         });
     });
     ui.add_space(8.0);
+
+    // Warning banner when running without administrator privileges on Windows.
+    #[cfg(target_os = "windows")]
+    if !crate::utils::is_admin() {
+        egui::Frame::new()
+            .fill(egui::Color32::from_rgb(0x2A, 0x1A, 0x1A))
+            .stroke(egui::Stroke::new(1.0, theme::WARN))
+            .corner_radius(egui::CornerRadius::same(theme::RADIUS_SMALL))
+            .inner_margin(egui::Margin::symmetric(10, 8))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("⚠")
+                            .color(theme::WARN)
+                            .size(14.0)
+                            .strong(),
+                    );
+                    ui.label(
+                        egui::RichText::new("Запущено без прав администратора. Сетевые правила DNS требуют прав администратора.")
+                            .color(theme::TEXT)
+                            .size(12.0),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    egui::RichText::new("Перезапустить с правами администратора")
+                                        .size(11.5)
+                                        .color(egui::Color32::BLACK),
+                                )
+                                .fill(theme::WARN)
+                                .corner_radius(egui::CornerRadius::same(4)),
+                            )
+                            .clicked()
+                        {
+                            app.request_elevation();
+                        }
+                    });
+                });
+            });
+        ui.add_space(8.0);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -523,6 +565,10 @@ fn providers_list(app: &mut App, ui: &mut egui::Ui) {
     }
     let mut flip: Option<(String, bool)> = None;
     let mut remove_custom: Option<String> = None;
+    let mut test_single: Option<String> = None;
+    let mut test_all = false;
+    let mut add_preset: Option<String> = None;
+
     // (from, to) — set the moment the pointer passes over another row, not on
     // release: the row has to follow the cursor while the button is still down.
     let mut moved: Option<(usize, usize)> = None;
@@ -537,70 +583,123 @@ fn providers_list(app: &mut App, ui: &mut egui::Ui) {
     .default_open(false)
     .show(ui, |ui| {
         let first_on = providers.iter().position(|p| p.enabled);
-        widgets::hint(
-            ui,
-            "Порядок можно менять: зажмите полоски слева и перетащите. \
-             Первый в списке спрашивается первым.",
-        );
+        ui.horizontal(|ui| {
+            widgets::hint(
+                ui,
+                "Порядок можно менять: зажмите полоски слева и перетащите. \
+                 Первый в списке опрашивается первым.",
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .add_enabled(
+                        !app.is_busy(),
+                        egui::Button::new(
+                            egui::RichText::new("⚡ Проверить все")
+                                .size(11.5)
+                                .color(theme::TEXT),
+                        )
+                        .fill(theme::BUTTON)
+                        .stroke(egui::Stroke::new(1.0, theme::LINE))
+                        .corner_radius(egui::CornerRadius::same(theme::RADIUS_SMALL)),
+                    )
+                    .on_hover_text("Проверить доступность и задержку (ping) всех серверов в пуле")
+                    .clicked()
+                {
+                    test_all = true;
+                }
+            });
+        });
         ui.add_space(4.0);
 
-        for (i, p) in providers.iter().enumerate() {
-            let row = ui
-                .horizontal(|ui| {
-                    ui.add_space(6.0);
-                    // Only the grip drags. Making the whole row a drag source
-                    // put a drag sense over the switch too, so aiming at the
-                    // switch and moving a pixel dragged the row instead of
-                    // toggling it.
-                    //
-                    // The id is keyed by name, not by index: an id tied to the
-                    // position would follow the slot rather than the row.
-                    let id = egui::Id::new(("dns-provider", p.name.as_str()));
-                    ui.dnd_drag_source(id, i, |ui| {
-                        ui.label(egui::RichText::new("≡").size(15.0).color(theme::MUTED));
-                    })
-                    .response
-                    .on_hover_cursor(egui::CursorIcon::Grab);
+        // Compact scrollable container for DNS server rows
+        egui::ScrollArea::vertical()
+            .max_height(200.0)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for (i, p) in providers.iter().enumerate() {
+                    let row = ui
+                        .horizontal(|ui| {
+                            ui.add_space(6.0);
+                            let id = egui::Id::new(("dns-provider", p.name.as_str()));
+                            ui.dnd_drag_source(id, i, |ui| {
+                                ui.label(egui::RichText::new("≡").size(15.0).color(theme::MUTED));
+                            })
+                            .response
+                            .on_hover_cursor(egui::CursorIcon::Grab);
 
-                    let mut on = p.enabled;
-                    if widgets::switch(ui, &mut on, true).changed() {
-                        flip = Some((p.name.clone(), on));
-                    }
-                    // Without rotation only the first enabled one is ever asked,
-                    // so the rest are drawn as what they are: on, but not in use.
-                    let idle = !rotating && p.enabled && first_on != Some(i);
-                    let text = egui::RichText::new(status::provider_name(&p.name)).size(13.0);
-                    ui.label(if idle { text.color(theme::MUTED) } else { text });
-                    if idle {
-                        widgets::hint(ui, "— не используется");
-                    }
-                    if let Some(address) = p.name.strip_prefix("custom:") {
-                        if ui
-                            .small_button("✕")
-                            .on_hover_text("Удалить пользовательский DNS")
-                            .clicked()
-                        {
-                            remove_custom = Some(address.to_string());
+                            let mut on = p.enabled;
+                            if widgets::switch(ui, &mut on, true).changed() {
+                                flip = Some((p.name.clone(), on));
+                            }
+                            // Without rotation only the first enabled one is ever asked,
+                            // so the rest are drawn as what they are: on, but not in use.
+                            let idle = !rotating && p.enabled && first_on != Some(i);
+                            let text = egui::RichText::new(status::provider_name(&p.name)).size(13.0);
+                            ui.label(if idle { text.color(theme::MUTED) } else { text });
+                            if idle {
+                                widgets::hint(ui, "— не используется");
+                            }
+
+                            // Ping status / test button for this provider
+                            let in_flight = app.ping_in_flight.contains(&p.name);
+                            let ping_res = app.ping_results.get(&p.name);
+
+                            if in_flight {
+                                ui.add(egui::Spinner::new().size(12.0));
+                            } else if let Some(res) = ping_res {
+                                match res {
+                                    Ok(dur) => {
+                                        let ms = dur.as_millis();
+                                        ui.label(
+                                            egui::RichText::new(format!("✓ {ms} мс"))
+                                                .color(theme::OK)
+                                                .size(11.5),
+                                        );
+                                    }
+                                    Err(err) => {
+                                        ui.label(
+                                            egui::RichText::new("✕ Ошибка")
+                                                .color(theme::BAD)
+                                                .size(11.5),
+                                        )
+                                        .on_hover_text(err);
+                                    }
+                                }
+                            }
+
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if let Some(address) = p.name.strip_prefix("custom:") {
+                                    if ui
+                                        .small_button("✕")
+                                        .on_hover_text("Удалить этот пользовательский DNS")
+                                        .clicked()
+                                    {
+                                        remove_custom = Some(address.to_string());
+                                    }
+                                }
+                                if !in_flight {
+                                    if ui
+                                        .small_button("⚡")
+                                        .on_hover_text("Проверить доступность и задержку этого сервера")
+                                        .clicked()
+                                    {
+                                        test_single = Some(p.name.clone());
+                                    }
+                                }
+                            });
+                        })
+                        .response;
+
+                    if let Some(from) = row.dnd_hover_payload::<usize>() {
+                        if *from != i {
+                            moved = Some((*from, i));
                         }
                     }
-                })
-                .response;
-
-            // The whole row is the drop target, not just the grip: aiming at a
-            // 15 px glyph to finish a drag is not something anyone should have
-            // to do.
-            // Hover, not release: the list rearranges under the pointer while
-            // the button is still down, which is what makes a drag feel like
-            // moving a thing rather than aiming at a slot.
-            if let Some(from) = row.dnd_hover_payload::<usize>() {
-                if *from != i {
-                    moved = Some((*from, i));
+                    if row.dnd_release_payload::<usize>().is_some() {
+                        dropped = true;
+                    }
                 }
-            }
-            if row.dnd_release_payload::<usize>().is_some() {
-                dropped = true;
-            }
-        }
+            });
 
         ui.add_space(6.0);
         ui.separator();
@@ -610,8 +709,24 @@ fn providers_list(app: &mut App, ui: &mut egui::Ui) {
         ui.add_space(8.0);
         widgets::hint(
             ui,
-            "Укажите по одному серверу в строке: IPv4 для обычного DNS, https://host/dns-query для DoH или tls://host:853 для DoT. Сервер должен подменять ответы Google.",
+            "Укажите сервер: IPv4 для обычного DNS, https://host/dns-query для DoH или tls://host:853 для DoT.",
         );
+
+        // Quick presets menu
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Шаблоны:").size(12.0).color(theme::MUTED));
+            egui::ComboBox::from_id_salt("dns-presets-combo")
+                .selected_text("Выбрать публичный DNS…")
+                .show_ui(ui, |ui| {
+                    for preset in crate::settings::DNS_PRESETS {
+                        if ui.selectable_label(false, preset.name).clicked() {
+                            add_preset = Some(preset.address.to_string());
+                        }
+                    }
+                });
+        });
+        ui.add_space(4.0);
+
         let busy = app.is_busy();
         let mut remove_input: Option<usize> = None;
         for index in 0..app.custom_dns_inputs.len() {
@@ -648,6 +763,15 @@ fn providers_list(app: &mut App, ui: &mut egui::Ui) {
         });
     });
 
+    if let Some(preset) = add_preset {
+        app.worker.send(Cmd::AddCustomDns(preset));
+    }
+    if test_all {
+        app.trigger_ping_all();
+    }
+    if let Some(name) = test_single {
+        app.trigger_ping(&name);
+    }
     if let Some((name, on)) = flip {
         app.worker.send(Cmd::SetProvider(name, on));
     }
@@ -658,23 +782,17 @@ fn providers_list(app: &mut App, ui: &mut egui::Ui) {
         if from < app.providers_local.len() && to < app.providers_local.len() {
             let row = app.providers_local.remove(from);
             app.providers_local.insert(to, row);
-            // The payload has to follow the row to its new index, or the next
-            // frame would think it is still being dragged from the old slot and
-            // move it straight back.
             egui::DragAndDrop::set_payload(ui.ctx(), to);
             app.providers_reordering = true;
         }
     }
 
-    // Saved once, when the button comes up. Writing on every hover would be a
-    // file write per frame of a drag.
+    // Saved once, when the button comes up.
     if dropped && app.providers_reordering {
         app.providers_reordering = false;
         let order: Vec<String> = app.providers_local.iter().map(|p| p.name.clone()).collect();
         app.worker.send(Cmd::ReorderProviders(order));
     }
-    // A drag abandoned outside the list (or one that changed nothing) must not
-    // leave the window refusing the worker's snapshots for ever.
     if app.providers_reordering && ui.input(|i| i.pointer.any_released()) {
         app.providers_reordering = false;
         let order: Vec<String> = app.providers_local.iter().map(|p| p.name.clone()).collect();

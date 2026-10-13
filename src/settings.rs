@@ -254,17 +254,75 @@ impl Settings {
     }
 }
 
+/// Preset template for quick DNS addition in GUI.
+pub struct DnsPreset {
+    pub name: &'static str,
+    pub address: &'static str,
+}
+
+pub const DNS_PRESETS: &[DnsPreset] = &[
+    DnsPreset {
+        name: "Cloudflare (1.1.1.1)",
+        address: "1.1.1.1",
+    },
+    DnsPreset {
+        name: "Cloudflare DoH",
+        address: "https://cloudflare-dns.com/dns-query",
+    },
+    DnsPreset {
+        name: "Cloudflare DoT",
+        address: "tls://1.1.1.1:853",
+    },
+    DnsPreset {
+        name: "Google (8.8.8.8)",
+        address: "8.8.8.8",
+    },
+    DnsPreset {
+        name: "Google DoH",
+        address: "https://dns.google/dns-query",
+    },
+    DnsPreset {
+        name: "Google DoT",
+        address: "tls://dns.google:853",
+    },
+    DnsPreset {
+        name: "AdGuard (94.140.14.14)",
+        address: "94.140.14.14",
+    },
+    DnsPreset {
+        name: "AdGuard DoH",
+        address: "https://dns.adguard-dns.com/dns-query",
+    },
+    DnsPreset {
+        name: "Quad9 (9.9.9.9)",
+        address: "9.9.9.9",
+    },
+    DnsPreset {
+        name: "Quad9 DoH",
+        address: "https://dns.quad9.net/dns-query",
+    },
+];
+
 /// Canonical form accepted by the UI and serialized to `settings.json`.
 pub fn normalize_custom_dns_server(value: &str) -> Result<String, &'static str> {
-    let value = value.trim();
-    if let Ok(ip) = value.parse::<std::net::Ipv4Addr>() {
+    let mut trimmed = value.trim().to_string();
+    if let Ok(ip) = trimmed.parse::<std::net::Ipv4Addr>() {
         if ip.is_unspecified() || ip.is_broadcast() || ip.is_multicast() {
             return Err("Этот IPv4-адрес нельзя использовать как DNS-сервер");
         }
         return Ok(ip.to_string());
     }
 
-    let mut url = url::Url::parse(value)
+    // Auto-prefix schemes if user omitted them
+    if !trimmed.contains("://") {
+        if trimmed.ends_with(":853") {
+            trimmed = format!("tls://{trimmed}");
+        } else if trimmed.contains('/') || trimmed.contains("dns-query") {
+            trimmed = format!("https://{trimmed}");
+        }
+    }
+
+    let mut url = url::Url::parse(&trimmed)
         .map_err(|_| "Введите IPv4-адрес, https://host/dns-query или tls://host:853")?;
     if url.host_str().is_none() || !url.username().is_empty() || url.password().is_some() {
         return Err("В адресе DNS не должно быть логина или пароля");
@@ -277,6 +335,10 @@ pub fn normalize_custom_dns_server(value: &str) -> Result<String, &'static str> 
         "https" => {
             if url.port_or_known_default() != Some(443) {
                 return Err("DoH сейчас поддерживает HTTPS-порт 443");
+            }
+            if url.path() == "/" || url.path().is_empty() {
+                // If path is missing, default to /dns-query
+                url.set_path("/dns-query");
             }
             Ok(url.to_string())
         }
