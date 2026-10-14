@@ -39,6 +39,8 @@ pub fn view(app: &mut App, ui: &mut egui::Ui) {
                     ui.set_max_width(ui.available_width() - 10.0);
                     status_card(app, ui);
                     ui.add_space(12.0);
+                    dns_card(app, ui);
+                    ui.add_space(12.0);
                     antigravity_card(app, ui);
                     ui.add_space(12.0);
                     advanced_card(app, ui);
@@ -337,6 +339,25 @@ const REPORT_SHOWN_FOR: Duration = Duration::from_secs(30);
 // Antigravity: the three switches anyone needs, and the installs
 // ---------------------------------------------------------------------------
 
+/// The DNS part of the regional-bypass path is a key user-facing control, not
+/// an advanced setting: keep it visible on the main screen.
+fn dns_card(app: &mut App, ui: &mut egui::Ui) {
+    widgets::card(ui, |ui| {
+        ui.label(
+            egui::RichText::new("ОБХОД РЕГИОНАЛЬНЫХ БЛОКИРОВОК")
+                .size(12.0)
+                .strong()
+                .color(theme::ACCENT),
+        );
+        ui.add_space(6.0);
+        cap_row(app, ui, Cap::Dns);
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(4.0);
+        providers_list(app, ui);
+    });
+}
+
 fn antigravity_card(app: &mut App, ui: &mut egui::Ui) {
     widgets::card(ui, |ui| {
         cap_row(app, ui, Cap::ClientPatch);
@@ -486,9 +507,6 @@ fn advanced_card(app: &mut App, ui: &mut egui::Ui) {
         widgets::card(ui, |ui| {
             network_facts(app, ui);
 
-            cap_row(app, ui, Cap::Dns);
-            providers_list(app, ui);
-
             ui.add_space(10.0);
             cap_row(app, ui, Cap::LocalProxy);
 
@@ -575,12 +593,12 @@ fn providers_list(app: &mut App, ui: &mut egui::Ui) {
     let mut dropped = false;
 
     egui::CollapsingHeader::new(
-        egui::RichText::new("Какие DNS использовать")
+        egui::RichText::new("Серверы DNS — выбрать и настроить")
             .size(12.5)
             .color(theme::MUTED),
     )
     .id_salt("providers")
-    .default_open(false)
+    .default_open(true)
     .show(ui, |ui| {
         let first_on = providers.iter().position(|p| p.enabled);
         ui.horizontal(|ui| {
